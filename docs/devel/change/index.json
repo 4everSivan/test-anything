@@ -1,0 +1,49 @@
+{
+  "$schema": "https://ad-flow.org/schemas/change-index.v1.json",
+  "version": "1.0",
+  "updated_at": "2026-11-01",
+  "topics": {
+    "TestAnythingOverview": {
+      "design_doc": "docs/devel/design/00-系统总体设计.md",
+      "cards": [
+        "C001"
+      ]
+    },
+    "TestLayoutAndState": {
+      "design_doc": "docs/devel/design/01-目录结构与状态管理.md",
+      "cards": [
+        "C001",
+        "C002"
+      ]
+    },
+    "TestCaseGeneration": {
+      "design_doc": "docs/devel/design/02-测试用例生成流水线.md",
+      "cards": [
+        "C001"
+      ]
+    },
+    "TestExecutionAndReport": {
+      "design_doc": "docs/devel/design/03-测试执行与报告引擎.md",
+      "cards": [
+        "C001",
+        "C002"
+      ]
+    }
+  },
+  "cards": {
+    "C001": {
+      "title": "修复 create 中断不可续跑、存量 tests/ 未确认即迁移与运行异常误报通过",
+      "version": "v0.1.0",
+      "status": "in_progress",
+      "branch": "fix/C001-create-run-safety",
+      "file": "docs/devel/change/C001.json"
+    },
+    "C002": {
+      "title": "测试报告仅保留最近一次运行结果，停止生成按批次堆积的历史报告",
+      "version": "v0.1.0",
+      "status": "in_progress",
+      "branch": "fix/C002-latest-only-reports",
+      "file": "docs/devel/change/C002.json"
+    }
+  }
+}

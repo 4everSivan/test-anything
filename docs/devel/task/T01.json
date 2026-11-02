@@ -1,0 +1,97 @@
+{
+  "$schema": "https://ad-flow.org/schemas/task-card.v1.json",
+  "id": "T01",
+  "title": "交付 test-anything v0.1 全栈测试生成与执行技能",
+  "version": "v0.1.0",
+  "milestone": "M1-test-anything-v0.1",
+  "status": "in_progress",
+  "branch": "feat/T01-test-anything-v0.1",
+  "depends_on": [],
+  "target": {
+    "module": "test-anything 技能入口、四阶生成流水线与执行报告引擎",
+    "design_doc": "docs/devel/design/00-系统总体设计.md",
+    "design_topic": "TestAnythingOverview"
+  },
+  "goal": "以声明式 SKILL.md、英文 workflow.yaml、5 份按需加载 references 规则手册与 13 份标准模板实现 $test-anything 父子命令体系（create 四阶段生成与 run [unittest|benchmark] 严格解耦执行），并配备技能包结构与契约回归测试。",
+  "precheck": {
+    "description": "检查技能入口 SKILL.md 与状态机 workflow.yaml 是否已存在且可解析",
+    "command": "python3 -c \"import pathlib, sys; sys.exit(0 if pathlib.Path('SKILL.md').is_file() and pathlib.Path('workflow.yaml').is_file() else 1)\"",
+    "expected": "SKILL.md 与 workflow.yaml 均存在且退出码为 0 时视为可能已实现，否则需执行开发交付",
+    "is_completed": true,
+    "evidence": "开工前执行 Exit 1（尚未实现）；完成 T01-1~T01-4 后复测同一命令 Exit 0。"
+  },
+  "callback": {
+    "before": [
+      "scripts/adflow-verify --mode init --json"
+    ],
+    "after": [
+      "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v",
+      "scripts/adflow-verify --mode init --json",
+      "scripts/adflow-verify --json"
+    ]
+  },
+  "tasks": [
+    {
+      "id": "T01-1",
+      "title": "技能主入口与父子命令状态机定义",
+      "capability": "交付 SKILL.md 与英文 workflow.yaml，实现 $test-anything 裸调默认 create、help (--help/-h) 纯只读帮助、create 四阶段流水线（drafts -> plans -> cases -> unit/benchmark）及 run [unittest|benchmark] 严格解耦门禁与三路执行路由",
+      "done": true
+    },
+    {
+      "id": "T01-2",
+      "title": "目标工程目录协议、状态总账与标准模板体系",
+      "capability": "交付状态与备份规范手册及 13 份标准模板（含备份声明、3 份 .state JSON 模板与 9 份 docs Markdown 模板），落实英文 u_/b_/all_ 前缀与单行元数据页眉契约",
+      "done": true
+    },
+    {
+      "id": "T01-3",
+      "title": "文档功能点扫描、两级计划、用例规格与代码生成规则",
+      "capability": "交付文档扫描、计划与规格设计、多语言代码生成 3 份参考手册，定义 FP-xxx 提取、双向追溯矩阵、u_ 6 要素与 b_ 5 要素卡片、测试代码 @case/@feature 锚点及 AAA 结构规范",
+      "done": true
+    },
+    {
+      "id": "T01-4",
+      "title": "测试执行调度、三段式报告规则与技能包自检测试",
+      "capability": "交付运行器与报告规范手册，落实 tests/tmp/ 隔离、业务源码只读红线与 u_/b_/all_ 三段式报告契约，并编写技能包自动化回归测试校验全部资产完整性",
+      "done": true
+    }
+  ],
+  "acceptance": {
+    "result": true,
+    "run_id": "local-20261101-15",
+    "user_quote": "",
+    "signoff": "",
+    "checks": [
+      {
+        "item": "技能入口、工作流与参考路由完备性",
+        "true_if": "SKILL.md、workflow.yaml 与 references/ 下 5 份规则手册全部就绪，路由引用可达，命令解耦与四阶段状态机定义完整",
+        "false_if": "缺失任一核心技能文件、引用断链或父子命令路由与设计基线不一致",
+        "evidence": "SKILL.md、workflow.yaml 及 references/ 下 5 份手册全部创建并通过链接可达性与命令路由断言测试（test_skill_md_frontmatter_and_reference_links / test_workflow_yaml_routes_and_asset_references ok）。",
+        "result": true
+      },
+      {
+        "item": "文档格式、代码锚点与状态模板契约一致性",
+        "true_if": "templates/ 下 13 份模板齐全，JSON 模板结构合法，Markdown 模板严格符合单行页眉、四节草稿、两级计划、u_ 6 要素/b_ 5 要素规格及三段式报告格式",
+        "false_if": "模板缺失、JSON 语法错误或章节字段与设计基线不符",
+        "evidence": "templates/ 下 13 份模板（backup-README、3 份 state JSON、9 份 docs Markdown）全部通过 JSON 解析与章节/页眉格式断言（test_json_state_templates_valid / test_markdown_templates_headers_and_sections ok）。",
+        "result": true
+      },
+      {
+        "item": "技能包自动化自检与治理门禁全绿",
+        "true_if": "技能包回归测试全部通过（Exit 0），且 adflow-verify 的 init 与 process 模式校验均为 Exit 0",
+        "false_if": "任一自动化测试失败或 adflow-verify 报告违规",
+        "evidence": "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v 运行 6 项测试全部 OK（0.102s，Exit 0）；scripts/adflow-verify --mode init --json 与 --json 均为 Exit 0（errors: 0, warnings: 0, advisories: 0）。",
+        "result": true
+      }
+    ]
+  },
+  "sync": {
+    "commit": ""
+  },
+  "gate": {
+    "tool": "adflow-verify",
+    "version": "1.6.0",
+    "ran_at": "",
+    "exit_code": null
+  }
+}

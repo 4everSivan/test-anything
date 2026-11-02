@@ -1,0 +1,51 @@
+{
+  "$schema": "https://ad-flow.org/schemas/task-index.v1.json",
+  "phase": "v0.1.0",
+  "updated_at": "2026-11-01",
+  "milestones": {
+    "M1-test-anything-v0.1": {
+      "title": "交付 test-anything v0.1 全栈测试生成与执行技能",
+      "status": "in_progress",
+      "tasks": [
+        "T01"
+      ]
+    }
+  },
+  "topics": {
+    "TestAnythingOverview": {
+      "design_doc": "docs/devel/design/00-系统总体设计.md",
+      "tasks": [
+        "T01"
+      ]
+    },
+    "TestLayoutAndState": {
+      "design_doc": "docs/devel/design/01-目录结构与状态管理.md",
+      "tasks": [
+        "T01"
+      ]
+    },
+    "TestCaseGeneration": {
+      "design_doc": "docs/devel/design/02-测试用例生成流水线.md",
+      "tasks": [
+        "T01"
+      ]
+    },
+    "TestExecutionAndReport": {
+      "design_doc": "docs/devel/design/03-测试执行与报告引擎.md",
+      "tasks": [
+        "T01"
+      ]
+    }
+  },
+  "tasks": {
+    "T01": {
+      "title": "交付 test-anything v0.1 全栈测试生成与执行技能",
+      "version": "v0.1.0",
+      "milestone": "M1-test-anything-v0.1",
+      "status": "in_progress",
+      "branch": "feat/T01-test-anything-v0.1",
+      "depends_on": [],
+      "file": "docs/devel/task/T01.json"
+    }
+  }
+}

@@ -1,0 +1,105 @@
+{
+  "$schema": "https://ad-flow.org/schemas/change-card.v1.json",
+  "id": "C002",
+  "title": "测试报告仅保留最近一次运行结果，停止生成按批次堆积的历史报告",
+  "version": "v0.1.0",
+  "type": "BugFix",
+  "status": "in_progress",
+  "branch": "fix/C002-latest-only-reports",
+  "is_hotfix": false,
+  "target": {
+    "module": "test-anything 执行报告引擎",
+    "component": "run 报告产出、全量汇总报告第 3 节与报告目录拓扑",
+    "design_doc": "docs/devel/design/03-测试执行与报告引擎.md",
+    "design_topic": "TestExecutionAndReport"
+  },
+  "why": "每次 run 除覆盖 *_latest.md 外还会新增 u_report_<run_id>.md 与 b_report_<run_id>.md，反复运行后 tests/docs/reports/ 不断堆积历史文档，增加 Git 噪声与阅读负担；用户明确只需要最近一次运行结果，历史批次报告没有使用场景（基准 Δ% 对比读取 last_run.json，不依赖历史报告）。",
+  "precheck": {
+    "description": "嗅探 run 是否仍产出按批次命名的历史报告、全量报告是否仍保留批次归档索引",
+    "command": "python3 -I -c \"import pathlib as p, sys; w = p.Path('workflow.yaml').read_text(encoding='utf-8'); r = p.Path('references/runner-and-reporting.md').read_text(encoding='utf-8'); a = p.Path('templates/docs/all_report.md.tpl').read_text(encoding='utf-8'); sys.exit(0 if '_report_<run_id>' not in w and '批次归档索引' not in a and 'Never write per-run copies' in r else 1)\"",
+    "expected": "Exit 1 表示仍会堆积历史报告需修复；Exit 0 表示已改为仅保留最近一次结果",
+    "is_completed": false,
+    "evidence": "修复前执行预检命令 Exit 1（workflow.yaml 仍写 *_report_<run_id>.md，all_report 模板仍含批次归档索引）；修复后复测同一命令 Exit 0。"
+  },
+  "callback": {
+    "before": [
+      "scripts/adflow-verify --json"
+    ],
+    "after": [
+      "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v",
+      "scripts/adflow-verify --json",
+      "scripts/adflow-verify --card C002 --receipt"
+    ]
+  },
+  "changes": [
+    {
+      "scope": "报告产出契约",
+      "before": "run unittest 写 u_report_<run_id>.md 并更新 u_report_latest.md；run benchmark 写 b_report_<run_id>.md 并更新 b_report_latest.md；run 全量另写 all_report_latest.md",
+      "after": "每份报告只有一个文件并原地覆盖：u_report_latest.md、b_report_latest.md、all_report_latest.md；不再写任何按 run_id 命名的副本，报告页眉中的 run_id 标识所属运行",
+      "impact": "tests/docs/reports/ 文件数恒定（最多 3 份），反复运行不再堆积"
+    },
+    {
+      "scope": "全量汇总报告格式",
+      "before": "all_report_latest.md 第 3 节“批次归档索引”链接本次 u_/b_report_<run_id>.md",
+      "after": "第 3 节改为“本次运行信息”，记录 run_id、执行时间、范围、两轨实际执行命令与状态文件 tests/.state/last_run.json",
+      "impact": "all_report 不再链接历史文件，三段式结构保持不变"
+    },
+    {
+      "scope": "存量历史报告处置",
+      "before": "无规则，旧版本产出的 *_report_<run_id>.md 会一直留存",
+      "after": "run 时若 tests/docs/reports/ 中存在旧版本产出的 u_/b_report_<YYYYMMDD_HHMMSS>.md，在运行小结中列出数量并提议删除；仅删除这些文件，且须取得用户明确确认",
+      "impact": "已堆积的历史报告可经确认一次性清理，未确认时保持原样"
+    }
+  ],
+  "design": {
+    "doc": "docs/devel/design/03-测试执行与报告引擎.md",
+    "topic": "TestExecutionAndReport",
+    "modified": true,
+    "rule_diff": {
+      "before": "run 产出最新报告与按运行批次归档的 u_/b_report_<run_id>.md，all_report 第 3 节为批次归档索引",
+      "after": "run 仅原地覆盖 *_latest.md，不再产出批次报告；all_report 第 3 节改为本次运行信息；旧批次报告经用户确认后才清理（同步回写 01-目录结构与状态管理.md @TestLayoutAndState 的 reports/ 目录规则）"
+    }
+  },
+  "verification": {
+    "result": true,
+    "run_id": "local-20261101-22",
+    "user_quote": "",
+    "signoff": "",
+    "checks": [
+      {
+        "item": "自动化测试",
+        "true_if": "技能包回归测试全绿（Exit 0），且新增针对“仅保留最新报告、无批次副本、旧报告清理须确认”的回归测试",
+        "false_if": "存在任何测试失败、报错，或缺少针对报告保留策略的回归测试",
+        "evidence": "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v：Ran 10 tests OK（Exit 0），新增 test_reports_keep_latest_run_only（扫描 SKILL.md、workflow.yaml、README、references、templates 与设计文档 00~03，禁止产出或链接按批次命名的报告，并校验旧报告清理须明确确认），test_markdown_templates_headers_and_sections 改为校验 all_report“## 3. 本次运行信息”。变异校验（临时副本，unittest discover -k）：恢复 workflow 写 u_report_<run_id>.md、恢复 all_report 批次归档索引、去掉清理确认条件，三种变异均以 AssertionError 失败，未变异时 Exit 0。",
+        "result": true
+      },
+      {
+        "item": "行为实测",
+        "true_if": "预检命令修复前 Exit 1、修复后 Exit 0；SKILL.md、workflow.yaml、references、模板、README 与设计文档中不再出现产出 *_report_<run_id>.md 的规则",
+        "false_if": "预检仍 Exit 1，或任一规则文件仍要求写入或链接按批次命名的历史报告",
+        "evidence": "预检命令修复前 Exit 1、修复后 Exit 0；全仓检索 _report_<run_id> 仅剩 runner-and-reporting.md 的禁止性规则句与设计文档 C002 演进行，带日期的 u_/b_report_YYYYMMDD_HHMMSS.md 示例零命中；workflow.yaml 经 Ruby YAML 解析通过；README 目录树、run 准则、报告格式标题与 all_report 示例同步改为仅 *_latest.md。",
+        "result": true
+      },
+      {
+        "item": "反向影响排查",
+        "true_if": "三段式报告结构、run 三路范围、C001 引入的 error 状态判定与 Δ% 对 last_run.json 的依赖保持不变，adflow-verify --json Exit 0",
+        "false_if": "破坏既有报告结构、run 路由或状态判定，或治理校验出现 ERROR",
+        "evidence": "u_/b_/all_ 三段式结构保留（all_report 第 3 节由批次归档索引改为本次运行信息），run 三路范围与 C001 的 error 状态判定未改动，Δ% 仍读取 last_run.json；scripts/adflow-verify --json Exit 0（errors 0, warnings 0, advisories 0）。",
+        "result": true
+      }
+    ]
+  },
+  "rejections": [],
+  "sync": {
+    "design_pinned": true,
+    "changelog": false,
+    "commit": "",
+    "tag": ""
+  },
+  "gate": {
+    "tool": "adflow-verify",
+    "version": "1.6.0",
+    "ran_at": "",
+    "exit_code": null
+  }
+}

@@ -1,0 +1,207 @@
+# test-anything Agentic Execution Workflow
+# Declarative procedure for AI Agents executing $test-anything [create | run [unittest|benchmark]]
+version: "0.1.0"
+workflow_id: "test_anything_main"
+target_actor: "AI_AGENT"
+trigger_aliases:
+  - "$test-anything"
+  - "/test-anything"
+  - "test-anything"
+description: "Route $test-anything invocations to the 4-stage create pipeline (default) or the strictly decoupled run [unittest|benchmark] execution engine."
+
+invariants:
+  - id: "INV_CREATE_RUN_DECOUPLED"
+    rule: "Running '$test-anything run [unittest|benchmark]' before '$test-anything create' has completed (tests/.state/manifest.json with create_status 'complete', or no create_status) and generated executable test files MUST fail immediately with an explicit error message. Never auto-trigger 'create' inside 'run'."
+    severity: "FATAL"
+  - id: "INV_NO_DELETE_BACKUP"
+    rule: "Captured snapshots in '/_test_anything_backup/' are strictly read-only. Never delete, overwrite, or prune existing backups. Ensure '/_test_anything_backup/' and '/tests/tmp/' are ignored in root .gitignore before creating backups or temporary files."
+    severity: "FATAL"
+  - id: "INV_CONFIRM_LEGACY_MOVE"
+    rule: "Never move an unmanaged legacy 'tests/' directory, write into it, or update '.gitignore' for it until the user has seen a read-only impact summary (file count, Git-tracked file count and the consequence that tracked files moved into the ignored backup zone appear deleted to Git, config and CI files referencing 'tests/', backup destination) and has explicitly confirmed in the conversation. The invocation itself, earlier instructions, or silence never count as confirmation; without it, stop with zero filesystem changes. A damaged or unparseable manifest is never treated as a legacy directory."
+    severity: "FATAL"
+  - id: "INV_READONLY_BUSINESS_SOURCE_ON_RUN"
+    rule: "During 'run', target project business source files are 100% read-only. Never alter target source code, weaken assertions, or skip failing tests to fabricate a green report."
+    severity: "FATAL"
+  - id: "INV_NO_PASS_WITHOUT_EVIDENCE"
+    rule: "A run track may be reported 'passed' (unit) or 'completed' (benchmark) only when the runner exit code is 0, no failure was parsed, and at least one case actually executed. A crash, collection or import error, zero executed cases, unparseable output, or an exit code that contradicts the parsed counts is 'error'. Never use template defaults or zero-filled tables as evidence of a pass."
+    severity: "FATAL"
+  - id: "INV_ENGLISH_PREFIX_NAMING"
+    rule: "All files under tests/docs/, tests/unit/, and tests/benchmark/ use English snake_case filenames with 'u_' (unit), 'b_' (benchmark), or 'all_' (combined report) prefixes. Never create nested unit/ or benchmark/ subdirectories inside tests/docs/cases/ or tests/docs/reports/."
+    severity: "FATAL"
+  - id: "INV_DRAFT_FIRST_PIPELINE"
+    rule: "The 'create' command has no unittest/benchmark filter sub-options; it always executes the full scope sequentially: Stage 0 (Init & Backup) -> Stage 1 (drafts/) -> Stage 2 (plans/) -> Stage 3 (cases/) -> Stage 4 (unit/, benchmark/, fixtures/, .state/manifest.json)."
+    severity: "FATAL"
+
+command_router:
+  parse_invocation:
+    - match: "$test-anything help"
+      aliases:
+        - "$test-anything --help"
+        - "$test-anything -h"
+        - "$test-anything create --help"
+        - "$test-anything run --help"
+      resolved_track: "HELP_PIPELINE"
+      scope: "read_only"
+      note: "Pure read-only help output; never creates directories, backups, or files."
+    - match: "$test-anything"
+      resolved_track: "CREATE_PIPELINE"
+      scope: "all"
+      note: "Bare invocation initializes tests/ (with backup if needed) and runs the full create pipeline."
+    - match: "$test-anything create"
+      resolved_track: "CREATE_PIPELINE"
+      scope: "all"
+      reject_subargs: ["unittest", "benchmark"]
+      on_rejected_subarg: "Report that 'create' does not accept unittest/benchmark sub-options and always generates the full suite."
+    - match: "$test-anything run"
+      resolved_track: "RUN_PIPELINE"
+      scope: "all"
+    - match: "$test-anything run unittest"
+      resolved_track: "RUN_PIPELINE"
+      scope: "unittest"
+    - match: "$test-anything run benchmark"
+      resolved_track: "RUN_PIPELINE"
+      scope: "benchmark"
+
+help_pipeline:
+  description: "Read-only help manual display without modifying any project files"
+  stages:
+    - stage: 1
+      id: "HELP_STAGE_1_DISPLAY"
+      name: "Render Command Usage and Directory Quick Reference"
+      actions:
+        - "Verify that no filesystem writes, directory creations, or backup moves are performed."
+        - "Output a concise Chinese help manual in the conversation covering: (1) skill version 'test-anything v0.1.0'; (2) command syntax ('$test-anything', '$test-anything help | --help | -h', '$test-anything create', '$test-anything run [unittest|benchmark]'); (3) strict decoupling between 'create' (4-stage full generation: drafts -> plans -> cases -> unit & benchmark) and 'run' (requires prior create); (4) target 'tests/' directory layout and 'u_'/'b_'/'all_' prefix conventions."
+      completion_condition: "Help manual is displayed in chat with zero filesystem side effects."
+
+create_pipeline:
+  description: "Full-scope 4-stage test generation pipeline (drafts -> plans -> cases -> unit & benchmark code)"
+  progress_protocol: "Stage 0 ends by writing 'tests/.state/manifest.json' with create_status 'in_progress'. Each later stage, once complete for every module in scope, sets completed_stage to its stage number. Stage 4 sets create_status 'complete' and completed_stage 4. A stage stopped by a blocker or interruption leaves completed_stage unchanged, so the next create resumes at that stage instead of treating 'tests/' as a legacy directory."
+  stages:
+    - stage: 0
+      id: "STAGE_0_INIT_AND_BACKUP"
+      name: "Environment Survey, Backup Isolation, and Skeleton Initialization"
+      load_references:
+        - "references/state-and-backup.md"
+      templates_used:
+        - "templates/backup-README.md.tpl"
+      actions:
+        - "Classify target_dir read-only before any write: no 'tests/' -> fresh; valid 'tests/.state/manifest.json' with create_status 'in_progress' -> resume; valid manifest with create_status 'complete' or no create_status -> incremental; manifest present but unparseable or without a valid schema_version -> stop and report without moving anything; 'tests/' without manifest -> legacy."
+        - "Legacy only: verify '_test_anything_backup/original_tests/tests/' does not already exist (stop on collision), present the read-only impact summary required by INV_CONFIRM_LEGACY_MOVE, and wait for the user's explicit confirmation; without it, stop with zero filesystem changes."
+        - "Ensure root '.gitignore' contains effective rules for '/_test_anything_backup/' and '/tests/tmp/' before creating any backup or tmp directory (in legacy mode, only after confirmation)."
+        - "Legacy only, after confirmation: create '_test_anything_backup/README.md' from 'templates/backup-README.md.tpl' and atomically move 'tests/' to '_test_anything_backup/original_tests/tests/'."
+        - "Resume only: skip the backup and move steps, keep existing artifacts, and continue at stage completed_stage + 1 after re-validating the artifacts of completed stages."
+        - "Incremental (and resume when the manifest already has code records): compare SHA-256 hashes of managed code files in 'tests/unit/' and 'tests/benchmark/' against manifest records; snapshot any externally modified test files to '_test_anything_backup/snapshots/<run_id>/' before updating."
+        - "Ensure standard directories exist: 'tests/docs/{drafts,plans,cases,reports}', 'tests/unit', 'tests/benchmark', 'tests/fixtures', 'tests/tmp', 'tests/.state'."
+        - "Write 'tests/.state/manifest.json' with create_status 'in_progress' and completed_stage 0 (resume mode keeps the recorded completed_stage; incremental mode keeps existing module records until Stage 4 replaces them)."
+      completion_condition: "Standard 'tests/' directory tree exists, '.gitignore' covers backup and tmp zones, any legacy unmanaged 'tests/' is isolated in '_test_anything_backup/original_tests/tests/' after explicit user confirmation, and 'tests/.state/manifest.json' records create_status 'in_progress'."
+      on_blocker: "Stop immediately without modifying existing files if the manifest is damaged, the backup destination collides, the user does not confirm a legacy move, or the target directory is not writable."
+
+    - stage: 1
+      id: "STAGE_1_DRAFT"
+      name: "Document Functional-Point Scanning and Candidate Drafting"
+      load_references:
+        - "references/doc-scanning.md"
+      templates_used:
+        - "templates/docs/draft.md.tpl"
+      actions:
+        - "Scan target project documentation ('docs/official/', 'docs/', root 'README.md', API specs) and any isolated legacy tests in '_test_anything_backup/original_tests/'."
+        - "Cross-check module boundaries against project source directories ('src/', 'lib/', 'app/', 'cmd/', 'pkg/', etc.)."
+        - "For each identified business module (orChanged modules on incremental run), extract functional points ('FP-<module>-<NN>'), triage candidate unit test points ('u_': normal, boundary, exception) and benchmark hotspots ('b_'), and identify unimplemented/ambiguous gaps ('GAP-<module>-<NN>')."
+        - "Write 'tests/docs/drafts/<module>_draft.md' using the 4-section draft format and single-line blockquote metadata header."
+      completion_condition: "Every identified module has a complete 4-section 'tests/docs/drafts/<module>_draft.md'."
+      on_blocker: "If neither project documentation nor source/legacy tests exist, write an initial draft noting the missing sources and stop cleanly at 'drafts/'."
+
+    - stage: 2
+      id: "STAGE_2_PLAN"
+      name: "Two-Level Test Planning and Traceability Matrix"
+      load_references:
+        - "references/case-and-plan-design.md"
+      templates_used:
+        - "templates/docs/test_plan.md.tpl"
+        - "templates/docs/module_plan.md.tpl"
+      actions:
+        - "Detect project language, build manifest ('pyproject.toml', 'go.mod', 'package.json', 'Cargo.toml', etc.), unit test runner, and benchmark runner."
+        - "Assign stable case IDs ('UT-<module>-<NNN>' and 'BM-<module>-<NNN>') to confirmed candidates from Stage 1."
+        - "Write global 'tests/docs/plans/test_plan.md' defining stack, runner commands (redirecting caches/temp files to 'tests/tmp/'), module coverage table, and fixture isolation strategy."
+        - "Write per-module 'tests/docs/plans/<module>_plan.md' containing the bidirectional traceability matrix ('FP-xxx' <-> 'UT-/BM-xxx' <-> source symbol <-> target test function) and module fixture/mock strategy."
+      completion_condition: "'tests/docs/plans/test_plan.md' and all 'tests/docs/plans/<module>_plan.md' files are written and consistent with 'drafts/'."
+
+    - stage: 3
+      id: "STAGE_3_CASE"
+      name: "Structured Test Case Specification Finalization"
+      load_references:
+        - "references/case-and-plan-design.md"
+      templates_used:
+        - "templates/docs/u_cases.md.tpl"
+        - "templates/docs/b_cases.md.tpl"
+      actions:
+        - "Verify each planned case against actual source code signatures and behavior contracts."
+        - "Mark documented features that are not yet implemented in source code as 'status: todo' (never fabricate fake passing assertions)."
+        - "Write 'tests/docs/cases/u_<module>_cases.md' with the summary table and H3 6-element specification cards for every 'UT-<module>-<NNN>'."
+        - "Write 'tests/docs/cases/b_<module>_cases.md' with the summary table and H3 5-element specification cards for every 'BM-<module>-<NNN>'."
+      completion_condition: "All 'u_<module>_cases.md' and 'b_<module>_cases.md' files are written under 'tests/docs/cases/'."
+
+    - stage: 4
+      id: "STAGE_4_CODEGEN_AND_MANIFEST"
+      name: "Executable Test Code Generation, Fixture Creation, and State Registration"
+      load_references:
+        - "references/codegen-adapters.md"
+        - "references/state-and-backup.md"
+      templates_used:
+        - "templates/docs/README.md.tpl"
+        - "templates/state/manifest.json.tpl"
+        - "templates/state/config.json.tpl"
+      actions:
+        - "Generate shared test data and mocks in 'tests/fixtures/<module>_fixtures.<ext/json>' (including top-level '_meta' for JSON/YAML fixtures)."
+        - "Generate executable unit tests in 'tests/unit/u_<module>_test.<ext>' and benchmarks in 'tests/benchmark/b_<module>_bench.<ext>' with top-level file metadata comments, per-function '@case' and '@feature' anchors, and Arrange-Act-Assert bodies."
+        - "Run a lightweight syntax/compile precheck on generated test files; if test-code syntax or import errors occur, repair generated test files locally (at most 3 rounds) without touching target business source code."
+        - "Update 'tests/docs/README.md' navigation index and write 'tests/.state/manifest.json' with SHA-256 hashes of sources and generated artifacts, create_status 'complete', and completed_stage 4 (create default 'tests/.state/config.json' only if absent or requested)."
+      completion_condition: "Executable unit and benchmark files, fixtures, 'tests/docs/README.md', and 'tests/.state/manifest.json' (create_status 'complete') are written and syntax-checked."
+
+run_pipeline:
+  description: "Strictly decoupled test execution and 3-part honest reporting engine"
+  stages:
+    - stage: 1
+      id: "RUN_STAGE_1_PREFLIGHT_GATE"
+      name: "Decoupled Manifest and Scope Gate"
+      load_references:
+        - "references/runner-and-reporting.md"
+        - "references/state-and-backup.md"
+      actions:
+        - "Check whether 'tests/.state/manifest.json' exists, is valid JSON, and records create_status 'complete' (a missing create_status counts as complete)."
+        - "Verify that executable test files exist in 'tests/unit/' (for 'all' or 'unittest') and/or 'tests/benchmark/' (for 'all' or 'benchmark')."
+        - "If missing, abort immediately with an error instructing the user to run '$test-anything create' first; if create_status is 'in_progress', report the stage reached and that running create again resumes it."
+      completion_condition: "A completed manifest and target test files are confirmed present."
+
+    - stage: 2
+      id: "RUN_STAGE_2_EXECUTE"
+      name: "Isolated Test Runner Execution"
+      load_references:
+        - "references/runner-and-reporting.md"
+      actions:
+        - "Read runner commands from 'tests/.state/config.json' (if overridden) or 'tests/.state/manifest.json.stack'."
+        - "Ensure 'tests/tmp/' exists and route all runner caches, temporary sandboxes, and raw outputs into 'tests/tmp/'."
+        - "Execute the selected scope ('unittest', 'benchmark', or 'all' sequentially) using host command execution tools while keeping target business source code strictly read-only."
+        - "Capture actual exit codes, stdout/stderr, per-case pass/fail/skip statuses, durations, stack traces, and benchmark metrics (ops/sec, latency, memory allocations)."
+      completion_condition: "Target commands have executed and raw outputs are captured."
+
+    - stage: 3
+      id: "RUN_STAGE_3_REPORT_AND_STATE"
+      name: "Three-Part Report Generation and State Update"
+      load_references:
+        - "references/runner-and-reporting.md"
+        - "references/state-and-backup.md"
+      templates_used:
+        - "templates/docs/u_report.md.tpl"
+        - "templates/docs/b_report.md.tpl"
+        - "templates/docs/all_report.md.tpl"
+        - "templates/state/last_run.json.tpl"
+      actions:
+        - "Derive each track's status from the actual exit code and parsed counts per INV_NO_PASS_WITHOUT_EVIDENCE and 'references/runner-and-reporting.md' (unit: passed|failed|error; benchmark: completed|failed|error; tracks outside scope: not_run)."
+        - "Map test function results back to 'UT-<module>-<NNN>' and 'BM-<module>-<NNN>' via '@case' anchors and manifest bindings."
+        - "If scope is 'unittest' or 'all': overwrite 'tests/docs/reports/u_report_latest.md' in place using the 3-part unit report structure. Never write per-run report copies; the header run_id identifies the run."
+        - "If scope is 'benchmark' or 'all': compare metrics against previous 'tests/.state/last_run.json' (if any), and overwrite 'tests/docs/reports/b_report_latest.md' in place using the 3-part benchmark report structure."
+        - "If scope is 'all': overwrite 'tests/docs/reports/all_report_latest.md' summarizing both tracks and module health."
+        - "If 'tests/docs/reports/' still holds per-run reports from earlier skill versions ('u_report_<YYYYMMDD_HHMMSS>.md', 'b_report_<YYYYMMDD_HHMMSS>.md'), list their count in the run summary and offer to delete them; delete only those files and only after the user's explicit confirmation."
+        - "Update 'tests/.state/last_run.json' and refresh latest status in 'tests/docs/README.md'."
+      completion_condition: "The latest-run reports and 'tests/.state/last_run.json' reflect actual execution facts, and no per-run report copy was written."

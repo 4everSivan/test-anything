@@ -1,0 +1,105 @@
+{
+  "$schema": "https://ad-flow.org/schemas/change-card.v1.json",
+  "id": "C001",
+  "title": "修复 create 中断不可续跑、存量 tests/ 未确认即迁移与运行异常误报通过",
+  "version": "v0.1.0",
+  "type": "BugFix",
+  "status": "in_progress",
+  "branch": "fix/C001-create-run-safety",
+  "is_hotfix": false,
+  "target": {
+    "module": "test-anything 目录结构、状态总账与执行报告",
+    "component": "create Stage 0 初始化/备份判定、manifest 进度记录、run 前置门禁与报告状态判定",
+    "design_doc": "docs/devel/design/01-目录结构与状态管理.md",
+    "design_topic": "TestLayoutAndState"
+  },
+  "why": "评审发现三处会销毁或误报工作成果的缺陷：(1) manifest.json 仅在 Stage 4 末尾写入，而 Stage 0 把“有 tests/ 无 manifest”一律判为非受管存量目录，导致中断的 create 下次运行时会把本技能自己的半成品迁入只读备份区，或在已有存量备份时因路径冲突永久中止，SKILL.md 承诺的 drafts/ 续跑无法实现；损坏的 manifest 同样会触发迁移。(2) 裸调 $test-anything 即在无确认的情况下迁走存量 tests/，若其受 Git 跟踪，迁入被忽略的备份区在 Git 视角等同删除，并破坏 CI、conftest.py 与 testpaths 等引用。(3) 报告状态仅有 passed/failed，运行器崩溃或未收集到任何用例时失败数为 0，u_report 模板第 3 节默认文字为“本次运行全部通过”，可能把异常写成通过，违反诚实报告原则。",
+  "precheck": {
+    "description": "嗅探三处缺陷是否仍存在：manifest 模板缺少 create 进度字段、workflow 缺少存量迁移确认不变量、单测报告模板仍以“全部通过”作为无条件默认文字",
+    "command": "python3 -I -c \"import json, pathlib as p, sys; m = json.loads(p.Path('templates/state/manifest.json.tpl').read_text(encoding='utf-8')); w = p.Path('workflow.yaml').read_text(encoding='utf-8'); u = p.Path('templates/docs/u_report.md.tpl').read_text(encoding='utf-8'); sys.exit(0 if 'create_status' in m and 'INV_CONFIRM_LEGACY_MOVE' in w and '本次运行全部通过' not in u else 1)\"",
+    "expected": "Exit 1 表示缺陷仍存在需修复；Exit 0 表示三处均已修复",
+    "is_completed": false,
+    "evidence": "修复前执行预检命令 Exit 1（三处缺陷均存在，非前序提交意外修复）；修复后复测同一命令 Exit 0。"
+  },
+  "callback": {
+    "before": [
+      "scripts/adflow-verify --json"
+    ],
+    "after": [
+      "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v",
+      "scripts/adflow-verify --json",
+      "scripts/adflow-verify --card C001 --receipt"
+    ]
+  },
+  "changes": [
+    {
+      "scope": "状态总账 / 续跑契约",
+      "before": "manifest.json 仅在 Stage 4 末尾写入；Stage 0 将“tests/ 存在但无有效 manifest”一律视为非受管存量目录并原子迁移；manifest 无进度字段",
+      "after": "Stage 0 完成后立即写入 manifest（create_status: in_progress，completed_stage: 0），每阶段完成后递增 completed_stage，Stage 4 完成后置 create_status: complete；Stage 0 遇 in_progress 进入续跑模式（不迁移、不重复备份，从 completed_stage+1 继续）；manifest 无法解析或 schema_version 无效时停止并报告，绝不当作存量目录迁移；缺少 create_status 的旧 manifest 视为 complete",
+      "impact": "中断或受阻的 create 可安全续跑；run 前置门禁对 create_status: in_progress 报错中止并提示先完成 create"
+    },
+    {
+      "scope": "存量备份 / 异常流",
+      "before": "检测到非受管 tests/ 后直接更新 .gitignore 并原子迁移，仅在事后报告 Git 跟踪情况",
+      "after": "新增 FATAL 不变量 INV_CONFIRM_LEGACY_MOVE：迁移前只读盘点并向用户展示影响摘要（文件数、Git 已跟踪文件数及“迁入忽略区在 Git 视角等同删除”的后果、引用 tests/ 的配置与 CI 文件、备份目标路径），取得明确确认后才写 .gitignore、备份 README 并迁移；未确认则零写入停止",
+      "impact": "裸调 $test-anything 与 $test-anything create 在存量工程上首次运行时增加一次人工确认"
+    },
+    {
+      "scope": "执行报告 / 状态判定",
+      "before": "u_/all_ 报告状态仅 passed|failed，b_ 报告仅 completed|failed；无判定规则；u_report 模板第 3 节默认写“本次运行全部通过，无失败用例。”",
+      "after": "各轨新增 error 状态并给出确定性判定：退出码非 0 但未解析出失败、未执行任何用例（含全部跳过）、计数无法解析或与退出码矛盾均判 error；passed 仅在退出码 0、失败 0 且至少 1 条用例实际通过时成立；all_report 取最差轨状态；error 时第 3 节写运行器异常诊断，严禁出现“全部通过”；模板第 3 节改为按状态渲染的占位符",
+      "impact": "报告、last_run.json 与 tests/docs/README.md 的状态取值新增 error"
+    }
+  ],
+  "design": {
+    "doc": "docs/devel/design/01-目录结构与状态管理.md",
+    "topic": "TestLayoutAndState",
+    "modified": true,
+    "rule_diff": {
+      "before": "manifest.json 为 create 完成的唯一依据且仅在 Stage 4 写入；存在非受管 tests/ 时直接原子迁移；报告状态仅 passed/failed（基准 completed/failed）",
+      "after": "manifest.json 以 create_status/completed_stage 记录进度，Stage 0 起即写入并支持续跑，仅 create_status: complete 视为可 run；存量 tests/ 迁移须先展示影响摘要并取得用户明确确认；报告新增 error 状态及确定性判定规则（同步回写 03-测试执行与报告引擎.md @TestExecutionAndReport 与 02-测试用例生成流水线.md @TestCaseGeneration）"
+    }
+  },
+  "verification": {
+    "result": true,
+    "run_id": "local-20261101-22",
+    "user_quote": "",
+    "signoff": "",
+    "checks": [
+      {
+        "item": "自动化测试",
+        "true_if": "技能包回归测试全绿（Exit 0），且新增覆盖续跑进度字段、存量迁移确认顺序、error 状态判定三项的针对性回归测试",
+        "false_if": "存在任何测试失败、报错，或三项缺陷中任一缺少针对性回归测试",
+        "evidence": "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v：Ran 10 tests OK（Exit 0，含 C002 新增 1 项），本卡新增 test_create_progress_enables_resume、test_legacy_move_requires_explicit_confirmation、test_run_status_never_claims_pass_without_evidence。变异校验（临时副本，unittest discover -k 单测运行）：删除 manifest 进度字段、把迁移动作移到确认之前、恢复无条件“全部通过”文案后，对应测试均以 AssertionError 失败（Exit 1），未变异时均 Exit 0，复原后全量 OK。更正：首轮变异校验以 python3 -I -m unittest <模块名> 运行，-I 隔离模式下 tests/ 不在导入路径，Exit 1 实为 ModuleNotFoundError，结论无效，已按上述方式重跑取证。",
+        "result": true
+      },
+      {
+        "item": "行为实测",
+        "true_if": "预检命令修复前 Exit 1、修复后 Exit 0；workflow.yaml、SKILL.md、references 与模板对续跑、迁移确认、error 判定的表述一致且可按规则推演出正确行为",
+        "false_if": "预检仍 Exit 1，或任一规则文件仍保留“无 manifest 即迁移”“未确认即迁移”“失败数为 0 即全部通过”的旧表述",
+        "evidence": "预检命令修复前 Exit 1、修复后 Exit 0；旧表述扫描（“无有效 manifest 即迁移”“preserve the completed draft”“If all tests pass”“无失败时明确注明”、仅含 passed|failed 的状态枚举等）除回归测试自身的 assertNotIn 外零命中；workflow.yaml 经 Ruby YAML 解析通过，Stage 0 按只读判定 → 确认 → .gitignore → 迁移排序，SKILL.md、references、templates、README 与设计文档 00~03 表述一致。",
+        "result": true
+      },
+      {
+        "item": "反向影响排查",
+        "true_if": "help/create/run 路由、既有 5 项不变量、目录与命名契约未被改变，adflow-verify --json Exit 0",
+        "false_if": "破坏既有路由或不变量，或治理校验出现 ERROR",
+        "evidence": "help/create/run 路由断言与原 5 项不变量断言继续通过（新增 INV_CONFIRM_LEGACY_MOVE、INV_NO_PASS_WITHOUT_EVIDENCE 两项）；目录拓扑与 u_/b_/all_ 命名契约未改动；scripts/adflow-verify --json Exit 0（errors 0, warnings 0, advisories 0）。",
+        "result": true
+      }
+    ]
+  },
+  "rejections": [],
+  "sync": {
+    "design_pinned": true,
+    "changelog": false,
+    "commit": "",
+    "tag": ""
+  },
+  "gate": {
+    "tool": "adflow-verify",
+    "version": "1.6.0",
+    "ran_at": "",
+    "exit_code": null
+  }
+}
