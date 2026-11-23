@@ -1,6 +1,6 @@
 # 开发文档入口 (devel/)
 
-> **created**: 2026-11-01 ｜ **last-change**: 2026-11-01 ｜ **status**: active
+> **created**: 2026-11-01 ｜ **last-change**: 2026-11-23 ｜ **status**: active
 
 ## 1. 简介
 
@@ -43,4 +43,4 @@
 
 收口命令、证据字段和异常处理见 [变更操作](change/README.md) 与 [任务操作](task/README.md)。Exit 0 后再同步状态并普通复核；卡片完成不自动授权推送、部署或发布。
 
-归档按 [归档操作](../archive/README.md) 执行，现行总账保留历史卡号并更新路径。后续任务可以引用归档的已完成依赖，归档卡保持只读。
+归档按 [归档操作](../archive/README.md) 执行：本批次登记移入 `docs/archive/<version>/index.json` 批次总账并冻结，现行总账只保留活跃卡与主题登记。后续任务可以引用归档的已完成依赖，归档卡保持只读；历史卡用 `scripts/adflow-verify --topic <主题>` 查询。

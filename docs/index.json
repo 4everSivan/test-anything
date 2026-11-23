@@ -1,7 +1,7 @@
 {
   "$schema": "adflow-docs-index-v1",
   "project": "test-anything",
-  "adflow_version": "1.6.0",
+  "adflow_version": "1.8.1",
   "created": "2026-11-01",
   "last_change": "2026-11-01",
   "status": "active",

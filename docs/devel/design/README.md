@@ -1,6 +1,6 @@
 # 系统设计中心 (design/)
 
-> **created**: 2026-11-01 ｜ **last-change**: 2026-11-01 ｜ **status**: active
+> **created**: 2026-11-01 ｜ **last-change**: 2026-11-23 ｜ **status**: active
 
 ## 1. 简介
 
@@ -33,6 +33,7 @@
 
 - **主题稳定**：模块正文标注 `<!-- @topic: TopicName -->`，卡片的 `target.design_topic` 与其完全一致。总体设计承载跨模块主题，模块设计承载所属领域主题。
 - **路径明确**：卡片以项目根目录相对路径挂接正文；设计使用 `[变更总账 (TopicName)](../change/index.json#TopicName)` 提供历史入口。查阅 JSON 时按 `topics[TopicName]` 定位，片段名是主题提示。
+- **机器路由**：每份现行设计同时登记到 [研发索引](../index.json) 的 `subsystems[design].designs`，条目为 `{"file": "docs/devel/design/01-模块.md", "topic": "TopicName", "status": "baseline", "title": "模块名"}`；`file` 与 `topic` 必须和正文锚标一致。旧项目没有 `designs` 键时保持只读兼容，校验器仅在声明该键后报告 `DESIGN_ROUTE_DRIFT`（ADVISORY）。
 - **规则与历史分开**：正文保持现行规则自洽，演进表仅记编号、类型、简介和规则变化。历史卡的位置由总账维护，设计不直接链接会随归档移动的卡片。
 - **变动与证据一致**：C 卡涉及规则变化时，核对 `design.rule_diff` 并回写对应正文；只修实现以符合原规则时，不制造设计变更。新领域先在总体设计登记，再新增模块设计并拆解 T 卡。
 - **版本从简**：遵循 [共同元数据约定](../../README.md)，维护 `last-change`，不独立递增设计小版本。未确认内容保持 `draft` 并说明来源或待确认问题；不得填造性能指标、批准记录和验收结果。
