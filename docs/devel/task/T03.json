@@ -1,0 +1,114 @@
+{
+  "$schema": "https://ad-flow.org/schemas/task-card.v1.json",
+  "id": "T03",
+  "title": "run 报告写入覆盖率",
+  "version": "v0.1.0",
+  "milestone": "M1-test-anything-v0.1",
+  "status": "pending",
+  "branch": "feat/T03-coverage-report",
+  "depends_on": [
+    "T02"
+  ],
+  "target": {
+    "module": "run 覆盖率采集与报告",
+    "design_doc": "docs/devel/design/03-测试执行与报告引擎.md",
+    "design_topic": "TestExecutionAndReport"
+  },
+  "goal": "按 03-测试执行与报告引擎 规则 5，在 run 与 run unittest 的同一次单测运行中采集 Python（coverage.py --branch、coverage json）与 Go（-coverprofile，多包加 -coverpkg=./...）覆盖率，写入 last_run.json.unit.coverage，并在 u_report 新增未覆盖符号节、all_report 新增覆盖率列；覆盖率解析作为 ta-verify 扩展交付；同步修订 01 与 templates/state/last_run.json.tpl。",
+  "precheck": {
+    "description": "检查 last_run.json 模板与 runner 规则是否已含覆盖率字段",
+    "command": "python3 -I -c \"import pathlib as p, sys; t = p.Path('templates/state/last_run.json.tpl').read_text(encoding='utf-8'); r = p.Path('references/runner-and-reporting.md').read_text(encoding='utf-8'); sys.exit(0 if 'coverage' in t and 'coverage' in r else 1)\"",
+    "expected": "Exit 1 表示尚未实现需开发交付；Exit 0 表示可能已实现，需核对验收项",
+    "is_completed": false,
+    "evidence": ""
+  },
+  "callback": {
+    "before": [
+      "scripts/adflow-verify --json"
+    ],
+    "after": [
+      "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v",
+      "scripts/adflow-verify --json",
+      "scripts/adflow-verify --card T03 --to completed --record  # Exit 0 后再同步状态",
+      "scripts/adflow-verify --card T03 --receipt"
+    ]
+  },
+  "tasks": [
+    {
+      "id": "T03-1",
+      "title": "同次运行采集覆盖率",
+      "capability": "run 与 run unittest 在同一次单测运行中通过运行器参数采集覆盖率，不额外再跑；基准测试不采集；原始文件落 tests/tmp/coverage/；不自动安装工具，缺工具时写 N/A 并说明原因",
+      "done": false
+    },
+    {
+      "id": "T03-2",
+      "title": "覆盖率解析（ta-verify 扩展）",
+      "capability": "以标准库解析 LCOV、工具 JSON 汇总与 Go coverprofile，输出 tool、format、line_pct、branch_pct、uncovered[]（每模块上限 50 条）；Go 分支覆盖为 N/A",
+      "done": false
+    },
+    {
+      "id": "T03-3",
+      "title": "状态与报告",
+      "capability": "写入 last_run.json.unit.coverage；u_report 新增第 4 节未覆盖符号；all_report 新增覆盖率列",
+      "done": false
+    },
+    {
+      "id": "T03-4",
+      "title": "协议与模板同步",
+      "capability": "同步修订 01-目录结构与状态管理 中 last_run.json 字段协议与 templates/state/last_run.json.tpl",
+      "done": false
+    }
+  ],
+  "acceptance": {
+    "result": null,
+    "run_id": "",
+    "user_quote": "",
+    "signoff": "",
+    "checks": [
+      {
+        "item": "同次采集与判定不变",
+        "true_if": "覆盖率在同一次单测运行中采集；采集或解析失败时 passed/failed/error 判定与退出码不变，只在覆盖率字段写 N/A 并说明原因",
+        "false_if": "为覆盖率额外再跑一遍测试，或覆盖率失败改变了单测判定或退出码",
+        "evidence": "",
+        "result": null
+      },
+      {
+        "item": "诚实报告",
+        "true_if": "缺工具或无法采集时报告 N/A 而不是 0；不设覆盖率阈值门禁；INV_NO_PASS_WITHOUT_EVIDENCE 不被弱化",
+        "false_if": "出现伪造的 0% 或数值、自动安装工具，或引入覆盖率阈值门禁",
+        "evidence": "",
+        "result": null
+      },
+      {
+        "item": "格式与语言范围",
+        "true_if": "Python 与 Go 样例均产出正确的 line_pct，Python 产出 branch_pct、Go 为 N/A；uncovered[] 每模块不超过 50 条",
+        "false_if": "解析结果与样例原始文件不一致、Go 给出分支覆盖数值，或超出 Python/Go 范围",
+        "evidence": "",
+        "result": null
+      },
+      {
+        "item": "协议同步",
+        "true_if": "01 设计、last_run.json.tpl、u_report/all_report 模板与 03 规则 5 一致，ta-verify 对新字段校验通过",
+        "false_if": "任一模板或协议与 03 规则 5 不一致",
+        "evidence": "",
+        "result": null
+      },
+      {
+        "item": "自动化测试与治理门禁",
+        "true_if": "全量单测 Exit 0、CI 全绿、scripts/adflow-verify --json Exit 0",
+        "false_if": "任一测试失败、CI 红或 adflow-verify 报告违规",
+        "evidence": "",
+        "result": null
+      }
+    ]
+  },
+  "sync": {
+    "commit": ""
+  },
+  "gate": {
+    "tool": "adflow-verify",
+    "version": "1.6.0",
+    "ran_at": "",
+    "exit_code": null
+  }
+}

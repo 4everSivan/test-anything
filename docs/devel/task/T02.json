@@ -1,0 +1,118 @@
+{
+  "$schema": "https://ad-flow.org/schemas/task-card.v1.json",
+  "id": "T02",
+  "title": "产物校验器 ta-verify 与样例回归",
+  "version": "v0.1.0",
+  "milestone": "M1-test-anything-v0.1",
+  "status": "pending",
+  "branch": "feat/T02-ta-verify",
+  "depends_on": [],
+  "target": {
+    "module": "产物校验器 ta-verify、样例工程与技能自身 CI",
+    "design_doc": "docs/devel/design/04-产物校验与样例回归.md",
+    "design_topic": "ArtifactVerification"
+  },
+  "goal": "按 04-产物校验与样例回归 交付单文件、仅标准库的只读校验器 scripts/ta-verify（--target/--scope/--json/--receipt，Exit 0 通过、4 违规、2 用法错误），以 Python、Go 两个样例工程的黄金产物与 examples/negative/ 负向样例构成回归基线，接入 create Stage 4 收口门禁与 run Stage 3 只报告校验，并以最小 CI 持续验证。",
+  "precheck": {
+    "description": "检查技能包内是否已存在 scripts/ta-verify 与 examples/ 样例目录",
+    "command": "python3 -I -c \"import pathlib as p, sys; sys.exit(0 if p.Path('scripts/ta-verify').is_file() and p.Path('examples/python-sample').is_dir() and p.Path('examples/go-sample').is_dir() and p.Path('examples/negative').is_dir() else 1)\"",
+    "expected": "Exit 1 表示尚未实现需开发交付；Exit 0 表示可能已实现，需核对验收项",
+    "is_completed": false,
+    "evidence": ""
+  },
+  "callback": {
+    "before": [
+      "scripts/adflow-verify --json"
+    ],
+    "after": [
+      "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v",
+      "scripts/adflow-verify --json",
+      "scripts/adflow-verify --card T02 --to completed --record  # Exit 0 后再同步状态",
+      "scripts/adflow-verify --card T02 --receipt"
+    ]
+  },
+  "tasks": [
+    {
+      "id": "T02-1",
+      "title": "ta-verify 校验器与诊断码",
+      "capability": "交付 scripts/ta-verify 单文件标准库实现：只读目标工程、不安装进目标工程；--scope create|run|all、--json、--receipt（仅输出自身校验回执，不是 run 的对话回执）；退出码 0/4/2；每个诊断码登记其依据的 references/ 条款并有漂移测试；manifest 哈希与磁盘不符为 WARNING 不致 Exit 4",
+      "done": false
+    },
+    {
+      "id": "T02-2",
+      "title": "Python 与 Go 样例工程及黄金产物",
+      "capability": "交付 examples/python-sample 与 examples/go-sample 及已提交的黄金产物，按结构而非逐字比对",
+      "done": false
+    },
+    {
+      "id": "T02-3",
+      "title": "负向样例",
+      "capability": "交付 examples/negative/：缺 @case 锚点、manifest 字段缺失或结构非法、u_/b_ 前缀错误、孤立用例各对应一个预期诊断码；另设手改哈希不符的警告样例，断言 Exit 0 并出现警告码",
+      "done": false
+    },
+    {
+      "id": "T02-4",
+      "title": "接入 create/run 流程",
+      "capability": "workflow.yaml 与 references/ 中：create Stage 4 末尾须 ta-verify Exit 0 才可写 create_status: complete，最多 3 轮修复；run Stage 3 只报告校验结果，不改变测试判定",
+      "done": false
+    },
+    {
+      "id": "T02-5",
+      "title": "最小 CI",
+      "capability": "交付 CI：运行契约测试、黄金样例断言 Exit 0、每个负向样例断言 Exit 4 且出现预期诊断码、警告样例断言 Exit 0",
+      "done": false
+    }
+  ],
+  "acceptance": {
+    "result": null,
+    "run_id": "",
+    "user_quote": "",
+    "signoff": "",
+    "checks": [
+      {
+        "item": "校验器契约与只读边界",
+        "true_if": "ta-verify 为单文件标准库脚本，对目标工程零写入，参数与退出码 0/4/2 与 04 设计一致，--receipt 只输出自身校验回执",
+        "false_if": "校验器写入目标工程、依赖第三方库、被安装进目标工程，或退出码/参数与设计不符",
+        "evidence": "",
+        "result": null
+      },
+      {
+        "item": "样例回归覆盖",
+        "true_if": "Python、Go 黄金样例 Exit 0；每个负向样例 Exit 4 且出现其预期诊断码；哈希不符警告样例 Exit 0 并出现警告码",
+        "false_if": "任一黄金样例非 0、任一负向样例未报出预期诊断码，或哈希不符被判为 Exit 4",
+        "evidence": "",
+        "result": null
+      },
+      {
+        "item": "诊断码依据可追溯",
+        "true_if": "每个诊断码登记其依据的 references/ 条款，漂移测试在条款缺失或改名时失败",
+        "false_if": "存在未登记依据的诊断码，或漂移测试缺失/不生效",
+        "evidence": "",
+        "result": null
+      },
+      {
+        "item": "流程接入与门禁",
+        "true_if": "create Stage 4 在 ta-verify Exit 0 前不写 complete 且修复不超过 3 轮；run Stage 3 校验只报告不改判",
+        "false_if": "create 未经校验即置 complete，或 run 因校验结果改变 passed/failed 判定",
+        "evidence": "",
+        "result": null
+      },
+      {
+        "item": "自动化测试与治理门禁",
+        "true_if": "全量单测 Exit 0、CI 全绿、scripts/adflow-verify --json Exit 0",
+        "false_if": "任一测试失败、CI 红或 adflow-verify 报告违规",
+        "evidence": "",
+        "result": null
+      }
+    ]
+  },
+  "sync": {
+    "commit": ""
+  },
+  "gate": {
+    "tool": "adflow-verify",
+    "version": "1.6.0",
+    "ran_at": "",
+    "exit_code": null
+  }
+}

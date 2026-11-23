@@ -1,0 +1,94 @@
+{
+  "$schema": "https://ad-flow.org/schemas/change-card.v1.json",
+  "id": "C003",
+  "title": "修正 00 设计文档中的“尚未落地”表述",
+  "version": "v0.1.0",
+  "type": "BugFix",
+  "status": "draft",
+  "branch": "fix/C003-overview-status-wording",
+  "is_hotfix": false,
+  "target": {
+    "module": "test-anything 系统总体设计",
+    "component": "00 第 1 节定位表述与 4.3 实现状态",
+    "design_doc": "docs/devel/design/00-系统总体设计.md",
+    "design_topic": "TestAnythingOverview"
+  },
+  "why": "00-系统总体设计 第 1 节仍写“当前处于需求与设计基线定稿阶段，技能执行资源（SKILL.md、workflow.yaml、references/、templates/）尚未落地实现”，4.3 也把这些资源列为待交付；而 v0.1.0 已交付全部资源并有回归测试，设计正文与现状不符，会误导后续建卡与评审。",
+  "precheck": {
+    "description": "检查 00 是否仍含“尚未落地实现”表述",
+    "command": "python3 -I -c \"import pathlib as p, sys; t = p.Path('docs/devel/design/00-系统总体设计.md').read_text(encoding='utf-8'); sys.exit(1 if '尚未落地实现' in t else 0)\"",
+    "expected": "Exit 1 表示表述仍需修正；Exit 0 表示已修正",
+    "is_completed": false,
+    "evidence": ""
+  },
+  "callback": {
+    "before": [
+      "scripts/adflow-verify --json"
+    ],
+    "after": [
+      "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v",
+      "scripts/adflow-verify --json",
+      "scripts/adflow-verify --card C003 --to verified --record  # Exit 0 后再同步状态",
+      "scripts/adflow-verify --card C003 --receipt"
+    ]
+  },
+  "changes": [
+    {
+      "scope": "设计正文现状表述",
+      "before": "第 1 节称技能执行资源尚未落地实现；4.3 将 SKILL.md、workflow.yaml、references/、templates/ 列为待交付",
+      "after": "第 1 节与 4.3 如实写明 v0.1.0 已交付的技能资源与回归测试，并列出同属 0.1 后续规划的 T02～T04；不改动任何业务规则",
+      "impact": "仅设计文档表述，无代码与行为影响"
+    }
+  ],
+  "design": {
+    "doc": "docs/devel/design/00-系统总体设计.md",
+    "topic": "TestAnythingOverview",
+    "modified": true,
+    "rule_diff": {
+      "before": "无规则变化（仅现状表述）",
+      "after": "无规则变化（仅现状表述）"
+    }
+  },
+  "verification": {
+    "result": null,
+    "run_id": "",
+    "user_quote": "",
+    "signoff": "",
+    "checks": [
+      {
+        "item": "表述与现状一致",
+        "true_if": "00 不再含“尚未落地实现”，第 1 节与 4.3 的实现状态与仓库实际资源一致",
+        "false_if": "仍含过时表述，或写入了未交付能力",
+        "evidence": "",
+        "result": null
+      },
+      {
+        "item": "规则零变化",
+        "true_if": "diff 只涉及现状描述，不改动任何业务规则、契约与其他设计文档",
+        "false_if": "改动了任何规则条款或越界修改其他文件",
+        "evidence": "",
+        "result": null
+      },
+      {
+        "item": "治理门禁",
+        "true_if": "全量单测 Exit 0 且 scripts/adflow-verify --json Exit 0",
+        "false_if": "任一测试失败或 adflow-verify 报告违规",
+        "evidence": "",
+        "result": null
+      }
+    ]
+  },
+  "rejections": [],
+  "sync": {
+    "design_pinned": false,
+    "changelog": false,
+    "commit": "",
+    "tag": ""
+  },
+  "gate": {
+    "tool": "adflow-verify",
+    "version": "1.8.1",
+    "ran_at": "",
+    "exit_code": null
+  }
+}

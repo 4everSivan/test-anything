@@ -1,0 +1,114 @@
+{
+  "$schema": "https://ad-flow.org/schemas/task-card.v1.json",
+  "id": "T04",
+  "title": "增量 create 支持 --module 与覆盖率缺口转补测",
+  "version": "v0.1.0",
+  "milestone": "M1-test-anything-v0.1",
+  "status": "pending",
+  "branch": "feat/T04-incremental-create-module",
+  "depends_on": [
+    "T03"
+  ],
+  "target": {
+    "module": "create 增量模式 --module 与覆盖率缺口补测",
+    "design_doc": "docs/devel/design/02-测试用例生成流水线.md",
+    "design_topic": "TestCaseGeneration"
+  },
+  "goal": "前置条件：C001 须先由 Bella 签署并 closed，在此之前本卡保持 pending，只做规划不开工。按 02-测试用例生成流水线 规则 6、7 交付 create --module <module> 增量生成（阶段与 manifest 按模块限定、变更回写 01、编号只追加、源码删除能力的用例标记 deprecated）与 COV-GAP 覆盖率缺口补测（读取 last_run uncovered[] 并记录来源 run_id，仅为能映射到既有 FP 的缺口补测，其余只登记，超出 50 条上限部分以计数登记为一条汇总 COV-GAP），Stage 4 仍受 ta-verify Exit 0 门禁约束。",
+  "precheck": {
+    "description": "先确认前置 C001 已 closed，未关闭则本卡不得开工",
+    "command": "python3 -I -c \"import json, sys; sys.exit(0 if json.load(open('docs/devel/change/C001.json', encoding='utf-8'))['status'] == 'closed' else 1)\"",
+    "expected": "Exit 1 表示 C001 尚未关闭，本卡保持 pending 不开工；Exit 0 后再核查 workflow.yaml 是否已支持 create --module 以判断是否已实现",
+    "is_completed": false,
+    "evidence": ""
+  },
+  "callback": {
+    "before": [
+      "scripts/adflow-verify --json"
+    ],
+    "after": [
+      "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v",
+      "scripts/adflow-verify --json",
+      "scripts/adflow-verify --card T04 --to completed --record  # Exit 0 后再同步状态",
+      "scripts/adflow-verify --card T04 --receipt"
+    ]
+  },
+  "tasks": [
+    {
+      "id": "T04-1",
+      "title": "create --module 增量生成",
+      "capability": "create --module <module> 按模块限定各阶段与 manifest；变更回写 01；用例编号只追加不重排；源码已删除能力的用例在 cases 中标记 deprecated 并停止生成代码，不物理删除",
+      "done": false
+    },
+    {
+      "id": "T04-2",
+      "title": "deprecated 豁免与负向样例",
+      "capability": "ta-verify --scope create 对 deprecated 用例豁免“须有对应测试函数”的检查，但仍带 @case 代码的 deprecated 用例要报出；新增对应负向样例",
+      "done": false
+    },
+    {
+      "id": "T04-3",
+      "title": "COV-GAP 缺口补测",
+      "capability": "读取 last_run uncovered[] 并记录来源 run_id；Python 按分支或行、Go 按语句块；仅为可映射到既有 FP 的缺口补测，其余只登记；超出每模块 50 条上限部分以计数登记为一条汇总 COV-GAP",
+      "done": false
+    },
+    {
+      "id": "T04-4",
+      "title": "协议与模板同步",
+      "capability": "同步修订 01 的 manifest 协议与 templates/state/manifest.json.tpl",
+      "done": false
+    }
+  ],
+  "acceptance": {
+    "result": null,
+    "run_id": "",
+    "user_quote": "",
+    "signoff": "",
+    "checks": [
+      {
+        "item": "前置条件",
+        "true_if": "开工时 C001 已由 Bella 签署并处于 closed，precheck 命令 Exit 0",
+        "false_if": "C001 未 closed 即开工，或由他人代签",
+        "evidence": "",
+        "result": null
+      },
+      {
+        "item": "增量范围正确",
+        "true_if": "--module 只改动目标模块的 drafts/plans/cases/代码与 manifest 条目，其他模块零改动；编号只追加；deprecated 用例保留且不再生成代码",
+        "false_if": "改动了非目标模块、重排或复用编号，或物理删除用例",
+        "evidence": "",
+        "result": null
+      },
+      {
+        "item": "缺口补测可追溯",
+        "true_if": "每条 COV-GAP 记录来源 run_id；补测只针对能映射到既有 FP 的缺口，其余仅登记；超限部分有计数汇总",
+        "false_if": "为无 FP 映射的缺口生成测试、丢失 run_id，或静默丢弃超限缺口",
+        "evidence": "",
+        "result": null
+      },
+      {
+        "item": "校验门禁",
+        "true_if": "Stage 4 在 ta-verify Exit 0 前不写 complete；deprecated 负向样例报出预期诊断码",
+        "false_if": "绕过 ta-verify 门禁，或 deprecated 豁免导致漏报带代码的 deprecated 用例",
+        "evidence": "",
+        "result": null
+      },
+      {
+        "item": "自动化测试与治理门禁",
+        "true_if": "全量单测 Exit 0、CI 全绿、scripts/adflow-verify --json Exit 0",
+        "false_if": "任一测试失败、CI 红或 adflow-verify 报告违规",
+        "evidence": "",
+        "result": null
+      }
+    ]
+  },
+  "sync": {
+    "commit": ""
+  },
+  "gate": {
+    "tool": "adflow-verify",
+    "version": "1.6.0",
+    "ran_at": "",
+    "exit_code": null
+  }
+}

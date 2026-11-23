@@ -1,13 +1,16 @@
 {
   "$schema": "https://ad-flow.org/schemas/task-index.v1.json",
   "phase": "v0.1.0",
-  "updated_at": "2026-11-01",
+  "updated_at": "2026-11-23",
   "milestones": {
     "M1-test-anything-v0.1": {
       "title": "交付 test-anything v0.1 全栈测试生成与执行技能",
       "status": "in_progress",
       "tasks": [
-        "T01"
+        "T01",
+        "T02",
+        "T03",
+        "T04"
       ]
     }
   },
@@ -27,13 +30,21 @@
     "TestCaseGeneration": {
       "design_doc": "docs/devel/design/02-测试用例生成流水线.md",
       "tasks": [
-        "T01"
+        "T01",
+        "T04"
       ]
     },
     "TestExecutionAndReport": {
       "design_doc": "docs/devel/design/03-测试执行与报告引擎.md",
       "tasks": [
-        "T01"
+        "T01",
+        "T03"
+      ]
+    },
+    "ArtifactVerification": {
+      "design_doc": "docs/devel/design/04-产物校验与样例回归.md",
+      "tasks": [
+        "T02"
       ]
     }
   },
@@ -46,6 +57,37 @@
       "branch": "feat/T01-test-anything-v0.1",
       "depends_on": [],
       "file": "docs/devel/task/T01.json"
+    },
+    "T02": {
+      "title": "产物校验器 ta-verify 与样例回归",
+      "version": "v0.1.0",
+      "milestone": "M1-test-anything-v0.1",
+      "status": "pending",
+      "branch": "feat/T02-ta-verify",
+      "depends_on": [],
+      "file": "docs/devel/task/T02.json"
+    },
+    "T03": {
+      "title": "run 报告写入覆盖率",
+      "version": "v0.1.0",
+      "milestone": "M1-test-anything-v0.1",
+      "status": "pending",
+      "branch": "feat/T03-coverage-report",
+      "depends_on": [
+        "T02"
+      ],
+      "file": "docs/devel/task/T03.json"
+    },
+    "T04": {
+      "title": "增量 create 支持 --module 与覆盖率缺口转补测",
+      "version": "v0.1.0",
+      "milestone": "M1-test-anything-v0.1",
+      "status": "pending",
+      "branch": "feat/T04-incremental-create-module",
+      "depends_on": [
+        "T03"
+      ],
+      "file": "docs/devel/task/T04.json"
     }
   }
 }

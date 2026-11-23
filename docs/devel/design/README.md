@@ -26,6 +26,7 @@
 | [目录结构与状态管理](01-目录结构与状态管理.md) | TestLayoutAndState | DESIGN-TA-LAYOUT | 目标工程 `tests/` 目录规范、`u_`/`b_` 英文命名、通用页眉、`docs/README.md` 导航与 `_test_anything_backup/` 存量备份 | baseline | 2026-11-01 |
 | [测试用例生成流水线](02-测试用例生成流水线.md) | TestCaseGeneration | DESIGN-TA-CREATE | `create` 四阶段流水线与 `drafts` / `plans` / `cases` / 测试代码 `@case` 锚点及内容格式契约 | baseline | 2026-11-01 |
 | [测试执行与报告引擎](03-测试执行与报告引擎.md) | TestExecutionAndReport | DESIGN-TA-RUN | `run [unittest\|benchmark]` 前置门禁、`tests/tmp/` 隔离、源码只读原则与三段式测试报告格式规范 | baseline | 2026-11-01 |
+| [产物校验与样例回归](04-产物校验与样例回归.md) | ArtifactVerification | DESIGN-TA-VERIFY | 只读产物校验器 `ta-verify`、Python/Go 样例黄金产物、负向样例与技能自身最小 CI | draft | 2026-11-23 |
 
 只登记已生成且有真实来源的设计，同时在 [研发索引](../index.json) 登记其路由；空项目保持清单为空。状态如实区分草稿与已批准基线，不把示例登记成项目能力。
 
