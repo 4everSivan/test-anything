@@ -1,12 +1,15 @@
 {
   "$schema": "https://ad-flow.org/schemas/change-index.v1.json",
   "version": "1.0",
-  "updated_at": "2026-11-01",
+  "updated_at": "2026-11-23",
   "topics": {
     "TestAnythingOverview": {
       "design_doc": "docs/devel/design/00-系统总体设计.md",
       "cards": [
         "C001"
+      ],
+      "changes": [
+        "C003"
       ]
     },
     "TestLayoutAndState": {
@@ -44,6 +47,13 @@
       "status": "in_progress",
       "branch": "fix/C002-latest-only-reports",
       "file": "docs/devel/change/C002.json"
+    },
+    "C003": {
+      "title": "修正 00 设计文档中的“尚未落地”表述",
+      "version": "v0.1.0",
+      "status": "draft",
+      "branch": "fix/C003-overview-status-wording",
+      "file": "docs/devel/change/C003.json"
     }
   }
 }
