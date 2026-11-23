@@ -1,6 +1,6 @@
 # 变更与核验卡池 (change/)
 
-> **created**: 2026-11-01 ｜ **last-change**: 2026-11-01 ｜ **status**: active
+> **created**: 2026-11-01 ｜ **last-change**: 2026-11-23 ｜ **status**: active
 
 ## 1. 简介
 
@@ -13,14 +13,16 @@ C 卡承载缺陷修复、功能回调、参数或契约调整及重构，记录
 | 入口 | 用途 | 维护时机 |
 |---|---|---|
 | [变更卡模板](../../standards/change-template.json) | 复制生成真实 C 卡 | 建卡时替换示例字段 |
-| [index.json](index.json) | `cards` 保存卡片路由，`topics` 关联设计主题 | 建卡、转状态、闭环和归档时 |
+| [index.json](index.json) | `cards` 保存活跃卡路由，`topics` 关联设计主题 | 建卡、转状态、闭环时；归档时移出本批次登记 |
 | [设计中心](../design/README.md) | 定位具体设计正文与主题 | 建卡前及规则回写时 |
 | [待办池](../todo/README.md) | 接收尚未入轨事项 | 建卡登记后移出对应行 |
-| [归档库](../../archive/README.md) | 本批次发布封箱 | 卡片 `closed` 且满足发布条件后 |
+| [归档库](../../archive/README.md) | 本批次发布封箱；历史卡经批次总账或 `--topic` 查询 | 卡片 `closed` 且满足发布条件后 |
 
 ## 3. 建卡与状态规则
 
-卡号从总账已有最大编号继续递增，如 `C001`；包含历史归档登记，跨版本不重置。最大号 +1 不是原子预占，并行合入须结合 `ID_DUPLICATE` 和 Git 冲突检查；撞号先修正卡号及引用，不得覆盖另一事项。
+建卡前先运行 `scripts/adflow-verify --scaffold new-card --plan --track change --design-topic <主题> --title <标题> --card-version <批次> --branch <分支> --todo <待办行文本> --json`；`executable` 为 true 后按 `writes` / `topics` / `todo` 创建卡片、登记总账并删除待办行，禁止手抄模板或手写登记；为 false 时先补齐 `missing` 输入再重跑。这些命令由 Agent 执行，人类只需用自然语言提出需求。
+
+卡号由计划给出（口径同 `scripts/adflow-verify --next-id change`），如 `C001`：它覆盖现行总账、各归档批次总账与归档目录，以及本机其他工作树和本地/远端跟踪分支中的最大编号，跨版本不重置。该结果不是原子预占，合入主干前须在合并结果上校验（见 [AGENTS.md](../../../AGENTS.md) 五.1），结合 `ID_DUPLICATE` 和 Git 冲突检查；撞号先修正卡号及引用，不得覆盖另一事项。
 
 | 字段组 | 建卡时写什么 | 收口时补什么 |
 |---|---|---|
