@@ -13,6 +13,7 @@
 | [`manifest-structure-invalid/`](manifest-structure-invalid/) | `manifest.json` 模块条目结构非法（`unit_code` 写成了字符串） | `4` | `MANIFEST_MODULE_INVALID` |
 | [`wrong-track-prefix/`](wrong-track-prefix/) | `cases/` 下出现缺少 `u_` / `b_` 前缀的文件 | `4` | `DOC_TRACK_PREFIX_INVALID` |
 | [`orphan-case/`](orphan-case/) | 孤立用例：规格仍在，对应的测试函数被删除 | `4` | `CASE_WITHOUT_TEST_CODE` |
+| [`deprecated-case-with-code/`](deprecated-case-with-code/) | `deprecated` 用例仍绑定着测试函数（能力已移除却还生成代码） | `4` | `CASE_DEPRECATED_WITH_CODE` |
 | [`hash-mismatch/`](hash-mismatch/) | **警告样例**：受管测试文件被人工修改，manifest 中的 SHA-256 未更新 | `0` | `MANIFEST_HASH_MISMATCH`（`WARNING`） |
 
 ## 2. `expected.json` 的含义

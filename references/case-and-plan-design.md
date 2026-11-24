@@ -15,9 +15,9 @@ Render from [templates/docs/test_plan.md.tpl](../templates/docs/test_plan.md.tpl
 
 Render from [templates/docs/module_plan.md.tpl](../templates/docs/module_plan.md.tpl) with header `> **module**: <module> ｜ **type**: module_plan ｜ **updated_at**: YYYY-MM-DD ｜ **status**: active` and two H2 sections:
 1. `## 1. 功能点 ↔ 用例 ID ↔ 源码符号 双向追溯矩阵`:
-   - Assign stable IDs: `UT-<module>-001`, `UT-<module>-002`... for unit tests (`u_`) and `BM-<module>-001`, `BM-<module>-002`... for benchmarks (`b_`).
+   - Assign stable IDs: `UT-<module>-001`, `UT-<module>-002`... for unit tests (`u_`) and `BM-<module>-001`, `BM-<module>-002`... for benchmarks (`b_`). IDs are append-only: never renumber, reuse, or reorder an existing ID, even after a case becomes `deprecated`.
    - Columns: `功能点 ID` | `用例 ID` | `类型 (u_/b_)` | `场景/负载分类` | `目标源码文件与函数签名` | `对应测试代码位置` | `优先级` | `状态`.
-   - Set `状态` to `active` for implemented targets and `todo` for `unimplemented` gaps.
+   - Set `状态` to `active` for implemented targets, `todo` for `unimplemented` gaps, and `deprecated` when the capability has been removed from the source. A `deprecated` case keeps its specification card and summary row for traceability but generates no test code; never delete it physically.
 2. `## 2. 模块夹具与 Mock 策略`: Document the fixtures in `tests/fixtures/<module>_fixtures.*` and mock boundaries.
 
 ## 2. Stage 3: Structured Case Specifications (`tests/docs/cases/`)

@@ -50,6 +50,7 @@ $test-anything run benchmark          # 执行子命令：仅执行 tests/benchm
 | `$test-anything`（裸调） | 已完成 `create`（`manifest.json` 记录 `create_status: complete`） | 默认执行 `create` 的增量扫描与更新流程 |
 | `$test-anything`（裸调） | `manifest.json` 损坏（无法解析或 `schema_version` 无效） | 停止并报告，不迁移任何文件 |
 | `$test-anything create` | 任意状态 | 同裸调行为；**不设 `unittest \| benchmark` 子参数**，始终全量覆盖单元测试与基准测试的生成/更新 |
+| `$test-anything create --module <module>` | 已完成过 `create`，或需要限定范围 | `--module` 可重复；只对指定模块执行 Stage 1–4，其余模块的 drafts/plans/cases/代码与 manifest 条目保持不变，模块名全程写入 `module_scope`；未知模块报错中止 |
 | `$test-anything run` | 已完成 `create` | 执行 `tests/unit/` + `tests/benchmark/` 全部测试，在 `tests/docs/reports/` 生成 `u_`、`b_` 及全量汇总报告 |
 | `$test-anything run unittest` | 已完成 `create` | 仅执行 `tests/unit/`，生成/更新 `u_` 单元测试报告与 `.state/last_run.json` |
 | `$test-anything run benchmark` | 已完成 `create` | 仅执行 `tests/benchmark/`，生成/更新 `b_` 性能基准报告与 `.state/last_run.json` |
@@ -189,6 +190,8 @@ flowchart TD
 1. 比对项目文档与源码文件的当前哈希与 `manifest.json` 记录值；
 2. 仅重新起草和更新受变更影响的模块（`drafts` → `plans` → `cases` → `unit`/`benchmark`），未变更模块保持原文件与时间戳；
 3. 若检测到用户手动修改了 `tests/unit/` 或 `tests/benchmark/` 下的某个受管文件（文件当前哈希与 `manifest.json` 不一致），先将该文件快照备份至 `_test_anything_backup/snapshots/<run_id>/`，并在合并更新时保留用户新增断言或提示冲突。
+4. 用例编号只追加、不重排、不复用；源码已删除对应能力的用例在 `cases/` 中标记 `deprecated` 并停止生成代码，不物理删除。
+5. 若 `last_run.json` 的 `unit.coverage.status` 为 `ok`，把 `uncovered[]` 逐条登记为草稿第 4 节的 `COV-GAP`（注明 `来源: coverage(<run_id>)`）：仅能映射到既有 `FP-` 的缺口进入 Stage 2–4 补测，其余只登记并提示补文档；单模块超过 50 条的部分以一条汇总 `COV-GAP` 记明数量。
 
 #### 中断续跑规则
 
@@ -696,6 +699,7 @@ JSON/YAML 数据夹具顶部固定保留 `_meta` 块，声明所属模块与引�
     "docs/official/项目总设计.md": { "sha256": "..." },
     "src/auth/service.py": { "sha256": "..." }
   },
+  "module_scope": ["auth"],
   "modules": {
     "auth": {
       "draft": "tests/docs/drafts/auth_draft.md",
@@ -716,6 +720,8 @@ JSON/YAML 数据夹具顶部固定保留 `_meta` 块，声明所属模块与引�
   }
 }
 ```
+
+`module_scope` 为可选字段：记录最近一次 `create` 覆盖的模块名，空数组或缺省表示全量；`create --module` 时只更新在范围模块的条目与 `sources` 哈希，`completed_stage` 也只按在范围模块是否完成推进。`case_ids` 只列需要生成测试代码的用例，`todo`、`unimplemented` 与 `deprecated` 用例保留规格但不生成代码；用例编号只追加、不重排、不复用，源码已删除对应能力的用例标记 `deprecated` 而非物理删除。
 
 ### 8.2 `tests/.state/last_run.json`
 

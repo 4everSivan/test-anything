@@ -58,6 +58,11 @@ command_router:
       scope: "all"
       reject_subargs: ["unittest", "benchmark"]
       on_rejected_subarg: "Report that 'create' does not accept unittest/benchmark sub-options and always generates the full suite."
+    - match: "$test-anything create --module <module>"
+      resolved_track: "CREATE_PIPELINE"
+      scope: "module"
+      repeatable: true
+      note: "'--module' may be repeated and limits Stages 1-4 to the named modules; every other module's drafts, plans, cases, code and manifest entries stay untouched. A module name that exists in neither the manifest, the project documentation nor the source tree aborts the run."
     - match: "$test-anything run"
       resolved_track: "RUN_PIPELINE"
       scope: "all"
@@ -81,6 +86,7 @@ help_pipeline:
 
 create_pipeline:
   description: "Full-scope 4-stage test generation pipeline (drafts -> plans -> cases -> unit & benchmark code)"
+  module_scope_protocol: "With '--module <module>' (repeatable), Stages 1-4 run only for the named modules: record them in manifest 'module_scope', update only their module records, docs, code and 'sources' hashes, and advance completed_stage only when every in-scope module finished the stage. Case IDs are append-only: never renumber, reuse or reorder them, and when a capability disappears from the source mark its case 'deprecated' (keep the specification, generate no code) instead of deleting it. On an incremental create whose 'last_run.json.unit.coverage.status' is 'ok', register each uncovered[] entry as a COV-GAP row in the module draft's Gaps section citing 来源: coverage(<run_id>); only gaps that map to an existing FP- continue to Stages 2-4 as new cases, the rest are registered only, and a module truncated by the 50-entry cap gets one aggregate COV-GAP row with the omitted count."
   progress_protocol: "Stage 0 ends by writing 'tests/.state/manifest.json' with create_status 'in_progress'. Each later stage, once complete for every module in scope, sets completed_stage to its stage number. Stage 4 sets create_status 'complete' and completed_stage 4. A stage stopped by a blocker or interruption leaves completed_stage unchanged, so the next create resumes at that stage instead of treating 'tests/' as a legacy directory."
   stages:
     - stage: 0
@@ -114,6 +120,8 @@ create_pipeline:
         - "Cross-check module boundaries against project source directories ('src/', 'lib/', 'app/', 'cmd/', 'pkg/', etc.)."
         - "For each identified business module (orChanged modules on incremental run), extract functional points ('FP-<module>-<NN>'), triage candidate unit test points ('u_': normal, boundary, exception) and benchmark hotspots ('b_'), and identify unimplemented/ambiguous gaps ('GAP-<module>-<NN>')."
         - "Write 'tests/docs/drafts/<module>_draft.md' using the 4-section draft format and single-line blockquote metadata header."
+        - "On an incremental create where 'tests/.state/last_run.json' records unit.coverage.status 'ok', register every uncovered[] entry as 'COV-GAP-<module>-<NN>' in the draft's '## 4. 待确认与实现差异 (Gaps)' section with '来源: coverage(<run_id>)'. Python gaps are uncovered lines or branches, Go gaps are statement blocks. Only gaps that map to an existing 'FP-' continue to Stages 2-4, with each new case noting '来源: coverage(<run_id>)'; gaps without a functional point are registered only with a note that the documentation needs the capability first. When a module was truncated by the 50-entry cap, add one aggregate COV-GAP row with the omitted count; never drop gaps silently."
+
       completion_condition: "Every identified module has a complete 4-section 'tests/docs/drafts/<module>_draft.md'."
       on_blocker: "If neither project documentation nor source/legacy tests exist, write an initial draft noting the missing sources and stop cleanly at 'drafts/'."
 
@@ -127,7 +135,8 @@ create_pipeline:
         - "templates/docs/module_plan.md.tpl"
       actions:
         - "Detect project language, build manifest ('pyproject.toml', 'go.mod', 'package.json', 'Cargo.toml', etc.), unit test runner, and benchmark runner."
-        - "Assign stable case IDs ('UT-<module>-<NNN>' and 'BM-<module>-<NNN>') to confirmed candidates from Stage 1."
+        - "Assign stable case IDs ('UT-<module>-<NNN>' and 'BM-<module>-<NNN>') to confirmed candidates from Stage 1. IDs are append-only: never renumber, reuse or reorder existing IDs, including after a case becomes deprecated."
+
         - "Write global 'tests/docs/plans/test_plan.md' defining stack, runner commands (redirecting caches/temp files to 'tests/tmp/'), module coverage table, and fixture isolation strategy."
         - "Write per-module 'tests/docs/plans/<module>_plan.md' containing the bidirectional traceability matrix ('FP-xxx' <-> 'UT-/BM-xxx' <-> source symbol <-> target test function) and module fixture/mock strategy."
       completion_condition: "'tests/docs/plans/test_plan.md' and all 'tests/docs/plans/<module>_plan.md' files are written and consistent with 'drafts/'."
@@ -142,7 +151,8 @@ create_pipeline:
         - "templates/docs/b_cases.md.tpl"
       actions:
         - "Verify each planned case against actual source code signatures and behavior contracts."
-        - "Mark documented features that are not yet implemented in source code as 'status: todo' (never fabricate fake passing assertions)."
+        - "Mark documented features that are not yet implemented in source code as 'status: todo' (never fabricate fake passing assertions). When a capability has been removed from the source, set the existing case to 'status: deprecated': keep its specification card and summary row, stop generating its test code, and never delete or renumber it."
+
         - "Write 'tests/docs/cases/u_<module>_cases.md' with the summary table and H3 6-element specification cards for every 'UT-<module>-<NNN>'."
         - "Write 'tests/docs/cases/b_<module>_cases.md' with the summary table and H3 5-element specification cards for every 'BM-<module>-<NNN>'."
       completion_condition: "All 'u_<module>_cases.md' and 'b_<module>_cases.md' files are written under 'tests/docs/cases/'."
