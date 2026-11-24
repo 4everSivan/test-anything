@@ -4,7 +4,7 @@
   "title": "测试报告仅保留最近一次运行结果，停止生成按批次堆积的历史报告",
   "version": "v0.1.0",
   "type": "BugFix",
-  "status": "verified",
+  "status": "closed",
   "branch": "fix/C002-latest-only-reports",
   "is_hotfix": false,
   "target": {
@@ -101,8 +101,8 @@
     "version": "1.8.1",
     "ran_at": "2026-11-24",
     "exit_code": 0,
-    "from_status": "in_progress",
-    "target_status": "verified",
+    "from_status": "verified",
+    "target_status": "closed",
     "signed_quote": "确认验收 C001、C002，同意 verified 并 closed",
     "signed_rejection_count": 0
   }
