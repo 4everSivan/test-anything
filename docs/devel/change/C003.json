@@ -4,7 +4,7 @@
   "title": "修正 00 设计文档中的“尚未落地”表述",
   "version": "v0.1.0",
   "type": "BugFix",
-  "status": "draft",
+  "status": "verified",
   "branch": "fix/C003-overview-status-wording",
   "is_hotfix": false,
   "target": {
@@ -18,8 +18,8 @@
     "description": "检查 00 是否仍含“尚未落地实现”表述",
     "command": "python3 -I -c \"import pathlib as p, sys; t = p.Path('docs/devel/design/00-系统总体设计.md').read_text(encoding='utf-8'); sys.exit(1 if '尚未落地实现' in t else 0)\"",
     "expected": "Exit 1 表示表述仍需修正；Exit 0 表示已修正",
-    "is_completed": false,
-    "evidence": ""
+    "is_completed": true,
+    "evidence": "修复前执行预检命令 Exit 1（00 设计第 1 节含“尚未落地实现”）；修复并改写规则演进行措辞后复测同一命令 Exit 0。"
   },
   "callback": {
     "before": [
@@ -36,7 +36,7 @@
     {
       "scope": "设计正文现状表述",
       "before": "第 1 节称技能执行资源尚未落地实现；4.3 将 SKILL.md、workflow.yaml、references/、templates/ 列为待交付",
-      "after": "第 1 节与 4.3 如实写明 v0.1.0 已交付的技能资源与回归测试，并列出同属 0.1 后续规划的 T02～T04；不改动任何业务规则",
+      "after": "第 1 节与 4.3 如实写明 v0.1.0 已交付的技能资源与回归测试，并注明 T01～T04 均已完成；不改动任何业务规则",
       "impact": "仅设计文档表述，无代码与行为影响"
     }
   ],
@@ -50,45 +50,49 @@
     }
   },
   "verification": {
-    "result": null,
-    "run_id": "",
-    "user_quote": "",
-    "signoff": "",
+    "result": true,
+    "run_id": "local-20261124-05",
+    "user_quote": "确认 C003 验收，同意 verified 并合并 closed",
+    "signoff": "sivan (AI代签，2026-11-24，会话确认)",
     "checks": [
       {
         "item": "表述与现状一致",
         "true_if": "00 不再含“尚未落地实现”，第 1 节与 4.3 的实现状态与仓库实际资源一致",
         "false_if": "仍含过时表述，或写入了未交付能力",
-        "evidence": "",
-        "result": null
+        "evidence": "预检命令由 Exit 1 转为 Exit 0，00 全文不再含该过时表述。第 1 节改为如实写明 v0.1.0 已交付的技能执行资源；4.3 按仓库实际清点：references/ 下 6 份规则手册（state-and-backup、doc-scanning、case-and-plan-design、codegen-adapters、runner-and-reporting、artifact-verification）、templates/ 下 13 份模板（backup-README、9 份 docs、3 份 state）、scripts/ta-verify（含 --coverage 与 deprecated 豁免）、examples/ 两个黄金样例与 7 个负向样例、tests/ 下 5 个测试模块共 70 项测试、.github/workflows/ci.yml；T01～T04 在任务总账中均为 completed，逐项证据见各卡。未写入任何未交付能力。",
+        "result": true
       },
       {
         "item": "规则零变化",
         "true_if": "diff 只涉及现状描述，不改动任何业务规则、契约与其他设计文档",
         "false_if": "改动了任何规则条款或越界修改其他文件",
-        "evidence": "",
-        "result": null
+        "evidence": "git diff 显示改动仅限 00 设计第 1 节末句、4.3 实现状态两条、4.4 规则演进新增 C003 行，以及 CHANGELOG、C003 卡与变更总账的状态；00 的 3.2 命令路由表、4.2 核心业务规则与其余设计文档（01～04）均未改动，无规则条款变化。",
+        "result": true
       },
       {
         "item": "治理门禁",
         "true_if": "全量单测 Exit 0 且 scripts/adflow-verify --json Exit 0",
         "false_if": "任一测试失败或 adflow-verify 报告违规",
-        "evidence": "",
-        "result": null
+        "evidence": "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests 运行 70 项全部 OK（Exit 0）；scripts/adflow-verify --json 与 --mode init --json 均 Exit 0（errors 0、warnings 0、advisories 0）；推送 fix/C003-overview-status-wording 触发的 GitHub Actions 运行 45335727050 结论 success。",
+        "result": true
       }
     ]
   },
   "rejections": [],
   "sync": {
-    "design_pinned": false,
-    "changelog": false,
-    "commit": "",
+    "design_pinned": true,
+    "changelog": true,
+    "commit": "584a0095d0268674cc02092d570d8b127a5dc4fd",
     "tag": ""
   },
   "gate": {
     "tool": "adflow-verify",
     "version": "1.8.1",
-    "ran_at": "",
-    "exit_code": null
+    "ran_at": "2026-11-24",
+    "exit_code": 0,
+    "from_status": "in_progress",
+    "target_status": "verified",
+    "signed_quote": "确认 C003 验收，同意 verified 并合并 closed",
+    "signed_rejection_count": 0
   }
 }
