@@ -14,6 +14,8 @@
 每个样例都是一个独立的最小目标工程：自己的业务源码、项目文档与一份由 `$test-anything create` / `$test-anything run` 流程产出的受管 `tests/`。
 
 - `tests/docs/` 下的草稿、计划、用例规格与三份 `*_latest.md` 报告、`tests/.state/manifest.json` 与 `last_run.json` 均为**真实运行产物**：报告与状态文件里的退出码、计数、耗时和基准指标取自页眉 `run_id` 所标识的那一次运行器输出，未测得的数值记 `n/a` 或 `<5`，没有用模板占位 `0` 充数。
+- 两份黄金产物的单测都在**同一次运行**里采集了覆盖率，结果写在 `last_run.json` 的 `unit.coverage` 与报告的覆盖率栏目中：`python-sample` 为行 76.92% / 分支 60%，`wordcount` 模块有 6 条真实的未覆盖符号，用来展示单元测试报告第 4 节；`go-sample` 为行 100% / 分支 N/A，因为 Go 只有语句块级覆盖。原始覆盖率文件位于被忽略的 `tests/tmp/coverage/`，不入库。
+- 正因为原始文件不入库，克隆后 `ta-verify --scope run` 只核对 `unit.coverage` 的结构与报告栏目；刚重新运行过样例、原始文件还在时，它会把记录与原始文件重新解析的结果逐项比对。
 - 样例自身的 `.gitignore` 按 [目录契约](../references/state-and-backup.md) 忽略 `/_test_anything_backup/` 与 `/tests/tmp/`，因此克隆后没有 `tests/tmp/` 属正常现象。
 
 ## 2. 负向样例

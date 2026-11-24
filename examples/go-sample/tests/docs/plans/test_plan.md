@@ -8,6 +8,7 @@
 - **单元测试运行命令**：`GOCACHE=$(pwd)/tests/tmp/go-build GOTMPDIR=$(pwd)/tests/tmp go test ./tests/unit -v -count=1`
 - **基准测试运行命令**：`GOCACHE=$(pwd)/tests/tmp/go-build GOTMPDIR=$(pwd)/tests/tmp go test ./tests/benchmark -run '^$' -bench . -benchmem -count=1`
 - **运行期临时目录**：`tests/tmp/`（所有临时文件、缓存与覆盖率原始数据强制落盘于此）。Go 要求 `GOCACHE` 与 `GOTMPDIR` 为绝对路径，故用 `$(pwd)` 拼出；`-count=1` 禁用测试结果缓存，保证每次都是真实执行
+- **覆盖率采集（仅 `run` 与 `run unittest`）**：在单测命令上追加 `-coverprofile=tests/tmp/coverage/unit.out -coverpkg=./...`，测试只跑一遍，不另行重跑，原始 profile 落在 `tests/tmp/coverage/`。Go 只有语句块级覆盖，分支覆盖率记 N/A。基准测试不采集覆盖率
 
 ## 2. 模块测试覆盖总表
 

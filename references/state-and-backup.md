@@ -82,7 +82,17 @@ Use [templates/state/last_run.json.tpl](../templates/state/last_run.json.tpl). U
 - `run_id`: `"YYYYMMDD_HHMMSS"`
 - `scope`: `"all" | "unittest" | "benchmark"`
 - `executed_at`: ISO-8601 timestamp
-- `unit`: execution summary (`status`: `passed | failed | error | not_run`, `command`, `exit_code`, `total`, `passed`, `failed`, `skipped`, `duration_ms`, `report`)
+- `unit`: execution summary (`status`: `passed | failed | error | not_run`, `command`, `exit_code`, `total`, `passed`, `failed`, `skipped`, `duration_ms`, `report`, `coverage`)
+- `unit.coverage`: coverage of the unit track, written by every `run`. It is the JSON object printed by `scripts/ta-verify --coverage` (see [runner-and-reporting](runner-and-reporting.md) Section 5), copied verbatim:
+  - `status`: `ok` (parsed from this run's raw file) | `unavailable` (tool missing, or collection/parsing failed) | `not_supported` (a language other than Python or Go) | `not_run` (the unit track is outside the requested scope)
+  - `reason`: `null` when `status` is `ok`; otherwise a non-empty explanation
+  - `tool`, `format`: the tool name and one of `coverage-json` | `lcov` | `go-coverprofile`; `null` unless `status` is `ok`
+  - `line_pct`, `branch_pct`: numbers from `0` to `100` with two decimals when measured, otherwise the string `"N/A"`; never `0` as a placeholder. `branch_pct` is always `"N/A"` for `go-coverprofile`, because Go only has statement-block coverage
+  - `raw`: relative paths of the raw files that were parsed, under `tests/tmp/coverage/`
+  - `modules`: `{ "<module>": { "line_pct", "branch_pct", "uncovered_total" } }`. A module is a source file name without its extension; a Python package's `__init__.py` counts as its directory
+  - `uncovered[]`: at most 50 entries per module, each `{ "module", "file", "symbol", "kind", "lines" }`. `kind` is `line` (a contiguous range such as `22-26`), `branch` (an arc such as `10->11`), or `block` (a Go statement-block range)
+  - `uncovered_omitted`: `{ "<module>": <count> }` of uncovered entries per module beyond the 50-entry cap
+  - When `status` is not `ok`, `raw`, `modules`, and `uncovered` are empty and `uncovered_omitted` is `{}`.
 - `benchmark`: execution summary (`status`: `completed | failed | error | not_run`, `command`, `exit_code`, `total`, `duration_ms`, `metrics_summary`, `report`)
 - `summary_report`: `"tests/docs/reports/all_report_latest.md"` or `null`
 

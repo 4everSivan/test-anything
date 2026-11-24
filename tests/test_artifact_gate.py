@@ -178,11 +178,12 @@ class TestContinuousIntegration(unittest.TestCase):
         self.assertIn("scripts/ta-verify --target examples/go-sample --scope all", workflow)
         self.assertIn('python3 -m unittest discover -s tests -p "test_ta_verify.py" -v', workflow)
 
-    def test_every_test_module_named_by_ci_exists(self):
-        modules = re.findall(r'-p "(test_\w+\.py)"', read(self.WORKFLOW))
-        self.assertEqual(len(modules), 3)
-        for module in modules:
-            self.assertTrue((ROOT / "tests" / module).is_file(), module)
+    def test_every_test_module_is_named_by_ci(self):
+        # Self-maintaining: a new test module that CI forgets to run is a red build, not a silent gap.
+        named = set(re.findall(r'-p "(test_\w+\.py)"', read(self.WORKFLOW)))
+        on_disk = {path.name for path in (ROOT / "tests").glob("test_*.py")}
+        self.assertTrue(on_disk)
+        self.assertEqual(named, on_disk)
 
     def test_ci_checks_out_full_history_for_the_commit_ancestry_check(self):
         # The governance test runs adflow-verify, which proves that a completed card's
@@ -192,10 +193,14 @@ class TestContinuousIntegration(unittest.TestCase):
         checkout = workflow.split("- uses: actions/checkout", 1)[1].split("\n      - ", 1)[0]
         self.assertRegex(checkout, r"(?m)^\s+fetch-depth: 0\s*$")
 
-    def test_ci_needs_no_ai_run_and_installs_no_toolchain(self):
-        # The baseline only runs the contract tests and ta-verify (stdlib only) on committed samples.
-        for forbidden in ("pip install", "pytest", "setup-go", "go-version", "coverage"):
-            self.assertNotIn(forbidden, read(self.WORKFLOW), forbidden)
+    def test_ci_installs_no_toolchain_and_never_runs_an_ai_pipeline(self):
+        # The baseline only runs the contract tests and ta-verify (stdlib only) on committed samples;
+        # coverage parsing is exercised with synthetic fixtures, so no coverage tool is installed.
+        workflow = read(self.WORKFLOW)
+        for forbidden in ("pip install", "setup-go", "go-version", "poetry", "apt-get",
+                          "$test-anything create", "$test-anything run"):
+            self.assertNotIn(forbidden, workflow, forbidden)
+        self.assertNotIn("run: go test", workflow)
 
     def test_ci_commands_succeed_locally(self):
         for command in re.findall(r"^\s+(scripts/ta-verify --target \S+ --scope all)$", read(self.WORKFLOW),

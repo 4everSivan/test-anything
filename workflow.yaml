@@ -34,6 +34,9 @@ invariants:
   - id: "INV_VERIFY_BEFORE_COMPLETE"
     rule: "'create' may record create_status 'complete' in 'tests/.state/manifest.json' only after the read-only artifact gate 'scripts/ta-verify --target <target_root> --scope create' exits 0; on exit 4 repair only generated files (at most 3 rounds), otherwise keep 'in_progress'. After 'run' writes its reports, 'scripts/ta-verify --scope run' is reported verbatim and never changes a track status, count, exit code, or metric. Never copy the verifier into the target project, weaken a check, or rewrite a recorded hash to pass the gate."
     severity: "FATAL"
+  - id: "INV_COVERAGE_HONEST_AND_PASSIVE"
+    rule: "Coverage is collected only for the unit track and only inside the same unit test run that produces the reported result; never run the tests a second time for coverage and never collect it for benchmarks. Never install a coverage tool: when it is missing, or collection or parsing fails, run the plain unit command and record coverage as unavailable with the reason and N/A values, never 0. Coverage has no threshold and never changes a track status, count, exit code, or the INV_NO_PASS_WITHOUT_EVIDENCE verdict; report figures only as parsed by 'scripts/ta-verify --coverage'."
+    severity: "FATAL"
 
 command_router:
   parse_invocation:
@@ -190,6 +193,8 @@ run_pipeline:
         - "Read runner commands from 'tests/.state/config.json' (if overridden) or 'tests/.state/manifest.json.stack'."
         - "Ensure 'tests/tmp/' exists and route all runner caches, temporary sandboxes, and raw outputs into 'tests/tmp/'."
         - "Execute the selected scope ('unittest', 'benchmark', or 'all' sequentially) using host command execution tools while keeping target business source code strictly read-only."
+        - "When the scope includes the unit track, collect coverage inside that same unit test run by adding the stack's coverage flags to the unit command (Python: coverage run --branch --source=<business source> followed by a coverage json export; Go: -coverprofile and, for multi-package modules, -coverpkg=./...) and write the raw data to 'tests/tmp/coverage/'. Never execute the unit tests a second time for coverage, and never collect coverage for benchmarks."
+        - "Probe the coverage tool read-only before wrapping the unit command. If it is missing, never install it: run the plain unit command and record coverage as unavailable with the reason."
         - "Capture actual exit codes, stdout/stderr, per-case pass/fail/skip statuses, durations, stack traces, and benchmark metrics (ops/sec, latency, memory allocations)."
       completion_condition: "Target commands have executed and raw outputs are captured."
 
@@ -208,9 +213,11 @@ run_pipeline:
       actions:
         - "Derive each track's status from the actual exit code and parsed counts per INV_NO_PASS_WITHOUT_EVIDENCE and 'references/runner-and-reporting.md' (unit: passed|failed|error; benchmark: completed|failed|error; tracks outside scope: not_run)."
         - "Map test function results back to 'UT-<module>-<NNN>' and 'BM-<module>-<NNN>' via '@case' anchors and manifest bindings."
+        - "If scope is 'unittest' or 'all': turn the raw coverage file into the coverage object from the skill package, without copying or installing it into the target project: 'scripts/ta-verify --coverage <raw_file> --target <target_root>'. Write the printed object verbatim into 'unit.coverage' of 'tests/.state/last_run.json'; when the tool was missing or collection or parsing failed, write status 'unavailable' with the reason and N/A values instead of numbers, and for stacks other than Python and Go write status 'not_supported'. For scope 'benchmark' write status 'not_run'."
         - "If scope is 'unittest' or 'all': overwrite 'tests/docs/reports/u_report_latest.md' in place using the 3-part unit report structure. Never write per-run report copies; the header run_id identifies the run."
         - "If scope is 'benchmark' or 'all': compare metrics against previous 'tests/.state/last_run.json' (if any), and overwrite 'tests/docs/reports/b_report_latest.md' in place using the 3-part benchmark report structure."
         - "If scope is 'all': overwrite 'tests/docs/reports/all_report_latest.md' summarizing both tracks and module health."
+        - "Render coverage only from that object: add the line and branch coverage columns to the Section 1 statistics table and the Section 4 uncovered-symbols table of the unit report, and the line coverage column to the Section 2 matrix of the full-suite report. An unmeasured value is N/A, never 0. Coverage has no threshold and never changes a track status, count, exit code, or metric."
         - "If 'tests/docs/reports/' still holds per-run reports from earlier skill versions ('u_report_<YYYYMMDD_HHMMSS>.md', 'b_report_<YYYYMMDD_HHMMSS>.md'), list their count in the run summary and offer to delete them; delete only those files and only after the user's explicit confirmation."
         - "Update 'tests/.state/last_run.json' and refresh latest status in 'tests/docs/README.md'."
         - "Run the read-only artifact check from the skill package, without copying or installing it into the target project: 'scripts/ta-verify --target <target_root> --scope run --json', and copy its findings verbatim into the run summary. It only reports structure and traceability: never change any status, count, exit code, or metric because of it, and never let it weaken INV_NO_PASS_WITHOUT_EVIDENCE."

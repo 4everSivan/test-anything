@@ -7,11 +7,16 @@ references/ 的现行规则。只校验结构与追溯一致性，不判断用�
 真实测试执行；发现违规时不修改任何文件，修复由 create / run 自身的生成—检查—修复循环完成。
 
 用法：scripts/ta-verify --target <目标工程根目录> [--scope create|run|all] [--json] [--receipt]
+      scripts/ta-verify --target <目标工程根目录> --coverage <覆盖率原始文件>
 退出码：0 全部通过 / 4 存在确定性违规 / 2 用法错误或目标不可读。
+
+--coverage 是覆盖率解析扩展：只认 coverage JSON、LCOV、Go coverprofile 三类格式，把原始文件
+规整为 last_run.json.unit.coverage 的协议对象并以 JSON 输出；与 --scope、--receipt 互斥。
 
 在技能包内运行：不安装、不复制到目标工程，不写任何文件，不访问网络。
 """
 import argparse
+import ast
 import collections
 import datetime
 import hashlib
@@ -191,6 +196,31 @@ CHECKS = {
     "REPORT_CASE_UNKNOWN": ("ERROR", "报告明细引用了 cases 文档中不存在的用例 ID",
                             "报告明细只列出 cases 文档中存在的用例 ID",
                             RR, "3. Three-Part Report Contracts (`tests/docs/reports/`)"),
+    # ---- 覆盖率：last_run.json.unit.coverage 与报告中的覆盖率栏目 ----
+    "COVERAGE_FIELD_MISSING": ("ERROR", "unit.coverage 缺少协议必填字段",
+                               "按 state-and-backup 的 coverage 协议补齐字段",
+                               SB, "4.2 `tests/.state/last_run.json`"),
+    "COVERAGE_FIELD_INVALID": ("ERROR", "unit.coverage 字段类型或取值不符合协议",
+                               "按 coverage 协议修正取值；Go 只有语句块级覆盖，branch_pct 必须为 N/A",
+                               SB, "4.2 `tests/.state/last_run.json`"),
+    "COVERAGE_UNCOVERED_OVER_CAP": ("ERROR", "uncovered[] 中单个模块超过 50 条",
+                                    "每个模块最多保留 50 条，其余条数记入 uncovered_omitted",
+                                    SB, "4.2 `tests/.state/last_run.json`"),
+    "COVERAGE_UNAVAILABLE_WITHOUT_REASON": ("ERROR", "覆盖率不可用但没有说明原因",
+                                            "写明 coverage.status 及具体原因，例如工具未安装或解析失败",
+                                            RR, "5. Coverage Collection and Reporting"),
+    "COVERAGE_VALUE_WITHOUT_EVIDENCE": ("ERROR", "覆盖率未测得却写成了数值",
+                                        "未测得一律写 N/A，不得填 0 或任何数值",
+                                        RR, "5. Coverage Collection and Reporting"),
+    "COVERAGE_RAW_UNREADABLE": ("ERROR", "coverage.raw 登记的原始文件无法解析",
+                                "只认 coverage JSON、LCOV、Go coverprofile 三类格式；用 scripts/ta-verify --coverage 重新解析",
+                                RR, "5. Coverage Collection and Reporting"),
+    "COVERAGE_RAW_MISMATCH": ("ERROR", "unit.coverage 与原始覆盖率文件不一致",
+                             "以 scripts/ta-verify --coverage 的解析结果为准重新回填，不要手工估算",
+                             RR, "5. Coverage Collection and Reporting"),
+    "COVERAGE_REPORT_MISMATCH": ("ERROR", "报告中的覆盖率与 last_run.json 不一致，或缺少对应栏目",
+                                 "按 last_run.json 的 coverage 如实渲染 u_report 第 1 节统计表、第 4 节与 all_report 覆盖率列",
+                                 RR, "5. Coverage Collection and Reporting"),
 }
 
 # ---- 目标工程的命名契约 ----
@@ -242,6 +272,24 @@ REPORT_STATUSES = {"unit": ("passed", "failed", "error"),
                    "all": ("passed", "failed", "error")}
 STATUS_RANK = {"passed": 1, "completed": 1, "failed": 2, "error": 3}
 
+# ---- 覆盖率：unit.coverage 协议与原始文件解析 ----
+COVERAGE_STATUSES = ("ok", "unavailable", "not_supported", "not_run")
+COVERAGE_FORMATS = ("coverage-json", "lcov", "go-coverprofile")
+COVERAGE_TOOLS = {"coverage-json": "coverage.py", "lcov": "lcov",
+                  "go-coverprofile": "go test -coverprofile"}
+COVERAGE_KEYS = ("status", "reason", "tool", "format", "line_pct", "branch_pct", "raw",
+                 "modules", "uncovered", "uncovered_omitted")
+COVERAGE_MODULE_KEYS = ("line_pct", "branch_pct", "uncovered_total")
+UNCOVERED_KEYS = ("module", "file", "symbol", "kind", "lines")
+UNCOVERED_KINDS = ("line", "branch", "block")
+UNCOVERED_CAP = 50
+# 运行期临时区与备份区不是业务源码，不计入覆盖率。
+NON_SOURCE_PREFIXES = ("tests/", "_test_anything_backup/")
+GO_FUNC_RE = re.compile(r"^func\s+(?:\(\s*[^)]*\b(\w+)\s*\)\s*)?(\w+)\s*\(")
+GO_BLOCK_RE = re.compile(r"^(?P<file>[^:]+):(?P<start>\d+)\.\d+,(?P<end>\d+)\.\d+\s+"
+                         r"(?P<stmts>\d+)\s+(?P<count>\d+)\s*$")
+COVERAGE_SECTION = "## 4. 未覆盖符号"
+
 # 测试/基准函数的识别：按扩展名匹配各语言运行器的发现规则（见 codegen-adapters 第 1 节）。
 JS_FUNC_RE = re.compile(r"^\s*(test|it|bench)\s*\(\s*['\"`]")
 FUNC_PATTERNS = {
@@ -269,6 +317,12 @@ class Unreadable(Exception):
 # ---- 通用小工具 ----
 def is_int(value):
     return isinstance(value, int) and not isinstance(value, bool)
+
+
+def is_number(value):
+    """有限的 int 或 float；布尔值与 NaN、无穷不算数值。"""
+    return (isinstance(value, (int, float)) and not isinstance(value, bool)
+            and value == value and value not in (float("inf"), float("-inf")))
 
 
 def is_count(value):
@@ -488,7 +542,7 @@ class Ctx:
     """一次校验的共享上下文：汇总发现项，并按检查组记录是否执行、是否通过。"""
 
     GROUPS = ("顶层目录", "文档命名", "用例追溯", "代码锚点", "manifest",
-              "运行状态", "报告集合", "报告页眉", "报告用例")
+              "运行状态", "覆盖率", "报告集合", "报告页眉", "报告用例")
 
     def __init__(self, target, scope):
         self.target = target
@@ -890,6 +944,531 @@ def check_manifest(ctx, art):
         ctx.add("MANIFEST_MODULE_UNREGISTERED", rel, "manifest.modules 登记了没有 cases 规格的模块 %s" % module)
 
 
+# ---- 覆盖率解析（--coverage 模式；--scope run 也用它复核 last_run.json） ----
+Uncovered = collections.namedtuple("Uncovered", "module file symbol kind lines start")
+
+
+def ratio_pct(part, whole):
+    """百分比，保留两位小数；整体为 0 时无从度量，记 N/A 而不是 0。"""
+    return round(part * 100.0 / whole, 2) if whole else "N/A"
+
+
+def span(start, end):
+    return str(start) if start == end else "%d-%d" % (start, end)
+
+
+def module_of(rel):
+    """源码文件所属的模块名：取文件名（不含扩展名）；Python 包的 __init__.py 取所在目录名。"""
+    stem = os.path.splitext(os.path.basename(rel))[0]
+    if stem == "__init__":
+        parts = rel.rstrip("/").split("/")
+        if len(parts) > 1:
+            return parts[-2]
+    return stem
+
+
+def relative_to_target(target, path):
+    """把原始文件里记录的路径换算为目标工程根目录的相对路径；做不到时原样返回。"""
+    path = path.replace("\\", "/")
+    if os.path.isabs(path):
+        try:
+            path = os.path.relpath(path, target.root)
+        except ValueError:  # Windows 上跨盘符
+            return path
+    return os.path.normpath(path).replace(os.sep, "/")
+
+
+def import_path_to_file(target, name):
+    """Go coverprofile 以导入路径记录文件：逐级去掉前缀，直到在目标工程中找到该文件。"""
+    parts = name.replace("\\", "/").split("/")
+    for index in range(len(parts)):
+        candidate = "/".join(parts[index:])
+        if target.is_file(candidate):
+            return candidate
+    return name
+
+
+def is_business_source(rel):
+    return not rel.startswith(NON_SOURCE_PREFIXES) and not rel.startswith("..")
+
+
+class _PythonSymbols(ast.NodeVisitor):
+    """收集 Python 源码里函数的 (起始行, 结束行, 限定名) 区间。"""
+
+    def __init__(self):
+        self.ranges = []
+        self.names = []
+
+    def visit_ClassDef(self, node):
+        self.names.append(node.name)
+        self.generic_visit(node)
+        self.names.pop()
+
+    def visit_FunctionDef(self, node):
+        self.names.append(node.name)
+        self.ranges.append((node.lineno, node.end_lineno, ".".join(self.names)))
+        self.generic_visit(node)
+        self.names.pop()
+
+    visit_AsyncFunctionDef = visit_FunctionDef
+
+
+def source_symbols(target, rel):
+    """读取源码并返回符号区间 [(起始行, 结束行, 限定名)]；读不到或语法非法时为空。"""
+    try:
+        text = target.read(rel)
+    except Unreadable:
+        return []
+    if rel.endswith(".py"):
+        try:
+            visitor = _PythonSymbols()
+            visitor.visit(ast.parse(text))
+        except (SyntaxError, ValueError, RecursionError):
+            return []
+        return visitor.ranges
+    if rel.endswith(".go"):
+        lines = text.splitlines()
+        found = []
+        for number, raw in enumerate(lines, 1):
+            match = GO_FUNC_RE.match(raw)
+            if match:
+                found.append([number, len(lines), ".".join(name for name in match.groups() if name)])
+        for current, following in zip(found, found[1:]):
+            current[1] = following[0] - 1
+        return [tuple(item) for item in found]
+    return []
+
+
+def symbol_at(ranges, line):
+    """包含 line 的最内层符号；不在任何符号区间内时为 <module>。"""
+    best = None
+    for start, end, name in ranges:
+        if start <= line <= end and (best is None or start >= best[0]):
+            best = (start, name)
+    return best[1] if best else "<module>"
+
+
+def line_groups(numbers, symbols):
+    """把未覆盖行折叠为连续区间并映射到所在符号：[(符号, 起, 止)]。"""
+    groups = []
+    for number in sorted(set(numbers)):
+        name = symbol_at(symbols, number)
+        if groups and groups[-1][0] == name and groups[-1][2] == number - 1:
+            groups[-1][2] = number
+        else:
+            groups.append([name, number, number])
+    return groups
+
+
+def add_stats(stats, module, statements, covered, branches, covered_branches):
+    bucket = stats.setdefault(module, [0, 0, 0, 0])
+    for index, value in enumerate((statements, covered, branches, covered_branches)):
+        bucket[index] += value
+
+
+def parse_coverage_json(text, target):
+    """coverage.py 的 JSON 导出：按文件读取 summary、未覆盖行与未覆盖分支弧。"""
+    try:
+        data = json.loads(text)
+    except ValueError as exc:
+        raise ValueError("不是合法的 JSON: %s" % exc)
+    files = data.get("files") if isinstance(data, dict) else None
+    if not isinstance(files, dict):
+        raise ValueError("不是 coverage.py 的 JSON 导出（缺少 files）")
+    stats, entries = {}, []
+    for name, info in sorted(files.items()):
+        rel = relative_to_target(target, name)
+        if not is_business_source(rel):
+            continue  # 只统计目标工程业务源码，排除 tests/ 自身
+        summary = info.get("summary") if isinstance(info, dict) else None
+        keys = ("num_statements", "covered_lines", "num_branches", "covered_branches")
+        if not isinstance(summary, dict) or not all(is_count(summary.get(key)) for key in keys):
+            raise ValueError("文件 %s 的 summary 不完整" % name)
+        module = module_of(rel)
+        add_stats(stats, module, *(summary[key] for key in keys))
+        symbols = source_symbols(target, rel)
+        missing = [number for number in info.get("missing_lines") or [] if is_int(number)]
+        for symbol, start, end in line_groups(missing, symbols):
+            entries.append(Uncovered(module, rel, symbol, "line", span(start, end), start))
+        for arc in info.get("missing_branches") or []:
+            if isinstance(arc, (list, tuple)) and len(arc) == 2 and is_int(arc[0]):
+                entries.append(Uncovered(module, rel, symbol_at(symbols, arc[0]), "branch",
+                                         "%s->%s" % (arc[0], arc[1]), arc[0]))
+    return stats, entries
+
+
+def parse_lcov(text, target):
+    """LCOV：SF/FN/DA/BRDA 记录；统计量由 DA 与 BRDA 重新计数，不依赖汇总行。"""
+    stats, entries = {}, []
+
+    def consume(record):
+        rel = relative_to_target(target, record["file"])
+        if not is_business_source(rel):
+            return
+        module = module_of(rel)
+        covered_branches = sum(1 for _, taken, _ in record["branches"] if taken)
+        add_stats(stats, module, len(record["lines"]),
+                  sum(1 for count in record["lines"].values() if count > 0),
+                  len(record["branches"]), covered_branches)
+        functions = sorted(record["functions"])
+        last = max(record["lines"], default=0)
+        # 函数区间：FN 可写成“起始行,函数名”或“起始行,结束行,函数名”，没有结束行时取到下一个函数之前。
+        symbols = [(start, end or (functions[index + 1][0] - 1 if index + 1 < len(functions) else last), name)
+                   for index, (start, end, name) in enumerate(functions)]
+        for symbol, start, end in line_groups(
+                [line for line, count in record["lines"].items() if count == 0], symbols):
+            entries.append(Uncovered(module, rel, symbol, "line", span(start, end), start))
+        for number, taken, label in record["branches"]:
+            if not taken:
+                # LCOV 的分支说明里若带目标行（如 coverage.py 的 jump to line N），还原为与 coverage JSON 相同的“起->止”。
+                jump = re.search(r"jump to line (\d+)", label)
+                lines = "%d->%s" % (number, jump.group(1)) if jump else str(number)
+                entries.append(Uncovered(module, rel, symbol_at(symbols, number), "branch", lines, number))
+
+    record = None
+    for raw in text.splitlines():
+        line = raw.strip()
+        if line.startswith("SF:"):
+            record = {"file": line[3:], "functions": [], "lines": {}, "branches": []}
+            continue
+        if record is None:
+            continue
+        if line.startswith("FN:"):
+            parts = line[3:].split(",")
+            if len(parts) >= 3 and parts[0].isdigit() and parts[1].isdigit():
+                record["functions"].append((int(parts[0]), int(parts[1]), ",".join(parts[2:])))
+            elif len(parts) >= 2 and parts[0].isdigit():
+                record["functions"].append((int(parts[0]), None, ",".join(parts[1:])))
+        elif line.startswith("DA:"):
+            parts = line[3:].split(",")
+            if len(parts) >= 2 and parts[0].isdigit():
+                record["lines"][int(parts[0])] = int(parts[1]) if parts[1].lstrip("-").isdigit() else 0
+        elif line.startswith("BRDA:"):
+            head, _, taken = line[5:].rpartition(",")
+            parts = head.split(",", 2)  # 分支说明自身可能含空格，只按前两个逗号切
+            if len(parts) == 3 and parts[0].isdigit():
+                record["branches"].append((int(parts[0]), taken.strip() not in ("0", "-"), parts[2].strip()))
+        elif line == "end_of_record":
+            consume(record)
+            record = None
+    if record is not None:
+        consume(record)  # 容忍末条记录缺少 end_of_record
+    return stats, entries
+
+
+def parse_go_coverprofile(text, target):
+    """Go 原生 coverprofile：每个语句块一行，count 为 0 即未覆盖；没有分支信息。"""
+    stats, entries, symbols = {}, [], {}
+    for raw in text.splitlines()[1:]:
+        if not raw.strip():
+            continue
+        match = GO_BLOCK_RE.match(raw)
+        if not match:
+            raise ValueError("无法识别的 coverprofile 行: %r" % raw.strip()[:80])
+        rel = import_path_to_file(target, match.group("file"))
+        if not is_business_source(rel):
+            continue
+        module = module_of(rel)
+        statements = int(match.group("stmts"))
+        add_stats(stats, module, statements, statements if int(match.group("count")) else 0, 0, 0)
+        if int(match.group("count")):
+            continue
+        if rel not in symbols:
+            symbols[rel] = source_symbols(target, rel)
+        start, end = int(match.group("start")), int(match.group("end"))
+        entries.append(Uncovered(module, rel, symbol_at(symbols[rel], start), "block",
+                                 span(start, end), start))
+    return stats, entries
+
+
+def detect_coverage_format(text):
+    """按内容识别覆盖率原始文件的格式；只认三类，其余返回 None。"""
+    stripped = text.lstrip("\ufeff \t\r\n")
+    if not stripped:
+        return None
+    if stripped.startswith("{"):
+        return "coverage-json"
+    if re.match(r"^mode:\s*\w+\s*$", stripped.splitlines()[0]):
+        return "go-coverprofile"
+    if re.search(r"^(?:SF|DA|FN|FNDA|BRDA):", stripped, re.M) and "end_of_record" in stripped:
+        return "lcov"
+    return None
+
+
+def uncovered_entry(entry):
+    return {"module": entry.module, "file": entry.file, "symbol": entry.symbol,
+            "kind": entry.kind, "lines": entry.lines}
+
+
+def empty_coverage(status, reason):
+    """没有任何可报告数值的 coverage 对象：未测得的字段一律 N/A。"""
+    return {"status": status, "reason": reason, "tool": None, "format": None,
+            "line_pct": "N/A", "branch_pct": "N/A", "raw": [], "modules": {},
+            "uncovered": [], "uncovered_omitted": {}}
+
+
+def build_coverage(fmt, stats, entries, raw):
+    """把逐文件的统计与未覆盖条目规整为 coverage 协议对象；每个模块最多保留 50 条。"""
+    statements, covered, branches, covered_branches = (sum(bucket[index] for bucket in stats.values())
+                                                        for index in range(4))
+    if not statements and not branches:
+        return empty_coverage("unavailable", "覆盖率原始文件中没有可统计的业务源码（已排除 tests/ 与备份区）")
+    totals = collections.Counter(entry.module for entry in entries)
+    coverage = {
+        "status": "ok", "reason": None, "tool": COVERAGE_TOOLS[fmt], "format": fmt,
+        "line_pct": ratio_pct(covered, statements),
+        "branch_pct": "N/A" if not branches else ratio_pct(covered_branches, branches),
+        "raw": [raw] if raw else [],
+        "modules": {module: {"line_pct": ratio_pct(bucket[1], bucket[0]),
+                             "branch_pct": "N/A" if not bucket[2] else ratio_pct(bucket[3], bucket[2]),
+                             "uncovered_total": totals.get(module, 0)}
+                    for module, bucket in sorted(stats.items())},
+        "uncovered": [], "uncovered_omitted": {}}
+    kept = collections.Counter()
+    for entry in sorted(entries, key=lambda item: (item.file, item.start, item.kind, item.lines)):
+        if kept[entry.module] < UNCOVERED_CAP:
+            coverage["uncovered"].append(uncovered_entry(entry))
+            kept[entry.module] += 1
+    coverage["uncovered_omitted"] = {module: total - UNCOVERED_CAP
+                                     for module, total in sorted(totals.items()) if total > UNCOVERED_CAP}
+    return coverage
+
+
+def parse_coverage_file(path, target):
+    """解析一个覆盖率原始文件并规整为 coverage 协议对象。
+
+    只认三类格式：coverage.py 的 JSON 导出、LCOV、Go 原生 coverprofile；其他内容抛 ValueError。
+    """
+    try:
+        with open(path, "r", encoding="utf-8-sig") as handle:
+            text = handle.read()
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ValueError("无法读取: %s" % exc)
+    fmt = detect_coverage_format(text)
+    parsers = {"coverage-json": parse_coverage_json, "lcov": parse_lcov,
+               "go-coverprofile": parse_go_coverprofile}
+    if fmt is None:
+        raise ValueError("不是 coverage JSON、LCOV 或 Go coverprofile 三类格式之一")
+    stats, entries = parsers[fmt](text, target)
+    return build_coverage(fmt, stats, entries,
+                          relative_to_target(target, os.path.abspath(path)))
+
+
+# ---- run 范围：覆盖率状态与报告 ----
+def is_pct(value, allow_na):
+    """0–100 的数值；allow_na 为真时也接受 N/A（未测得）。"""
+    if value == "N/A":
+        return bool(allow_na)
+    return is_number(value) and 0 <= value <= 100
+
+
+def same_pct(left, right):
+    if left == "N/A" or right == "N/A":
+        return left == right
+    return is_number(left) and is_number(right) and abs(left - right) <= 0.011
+
+
+def coverage_entries(coverage):
+    """结构合法的未覆盖条目的可比较形式；结构非法的条目已由 check_coverage_state 报告。"""
+    return sorted((entry["module"], entry["file"], entry["symbol"], entry["kind"], entry["lines"])
+                  for entry in coverage["uncovered"]
+                  if isinstance(entry, dict) and set(entry) == set(UNCOVERED_KEYS)
+                  and all(isinstance(entry[key], str) for key in UNCOVERED_KEYS))
+
+
+def check_coverage_state(ctx, unit):
+    """核对 unit.coverage 的结构与诚实性；原始文件仍在时与其重新解析的结果比对。
+
+    返回通过结构核对的 coverage（status 不是 ok 时同样返回，供报告核对），否则 None。
+    """
+    ctx.enter("覆盖率")
+    rel = "tests/.state/last_run.json"
+    if not isinstance(unit, dict):
+        return None
+    if "coverage" not in unit:
+        ctx.add("COVERAGE_FIELD_MISSING", rel, "unit 缺少 coverage 字段")
+        return None
+    coverage = unit["coverage"]
+    if not isinstance(coverage, dict):
+        ctx.add("COVERAGE_FIELD_INVALID", rel, "unit.coverage 须为对象")
+        return None
+
+    def invalid(message):
+        ctx.add("COVERAGE_FIELD_INVALID", rel, message)
+
+    missing = [key for key in COVERAGE_KEYS if key not in coverage]
+    for key in missing:
+        ctx.add("COVERAGE_FIELD_MISSING", rel, "unit.coverage 缺少协议必填字段 %s" % key)
+    status = coverage.get("status")
+    if missing:
+        return None
+    if status not in COVERAGE_STATUSES:
+        invalid("coverage.status 应为 %s 之一，实际为 %r" % (" / ".join(COVERAGE_STATUSES), status))
+        return None
+    if (status == "not_run") != (unit.get("status") == "not_run"):
+        invalid("coverage.status 为 %s，与单测轨状态 %r 不一致：只有单测轨 not_run 时覆盖率才是 not_run"
+                % (status, unit.get("status")))
+    if status != "ok":
+        # 未测得就必须是 N/A：缺工具、不支持或未执行时出现任何数值都属于伪造。
+        if not (isinstance(coverage["reason"], str) and coverage["reason"].strip()):
+            ctx.add("COVERAGE_UNAVAILABLE_WITHOUT_REASON", rel, "coverage.status 为 %s，却没有说明原因" % status)
+        for key in ("line_pct", "branch_pct"):
+            if coverage[key] != "N/A":
+                ctx.add("COVERAGE_VALUE_WITHOUT_EVIDENCE", rel, "coverage.status 为 %s，%s 却写成 %r；未测得必须写 N/A，不得填 0 或数值" % (status, key, coverage[key]))
+        if coverage["uncovered"] or coverage["uncovered_omitted"] or coverage["modules"]:
+            invalid("覆盖率不可用时 uncovered、uncovered_omitted 与 modules 应为空")
+        return coverage
+
+    if coverage["reason"] is not None:
+        invalid("coverage.status 为 ok 时 reason 应为 null")
+    if not (isinstance(coverage["tool"], str) and coverage["tool"].strip()):
+        invalid("coverage.tool 应为非空的工具名称")
+    if coverage["format"] not in COVERAGE_FORMATS:
+        invalid("coverage.format 应为 %s 之一，实际为 %r" % (" / ".join(COVERAGE_FORMATS), coverage["format"]))
+        return coverage
+    for key, allow_na in (("line_pct", False), ("branch_pct", True)):
+        if not is_pct(coverage[key], allow_na):
+            invalid("coverage.%s 应为 0–100 的数值%s，实际为 %r" % (key, "或 N/A" if allow_na else "", coverage[key]))
+    if coverage["format"] == "go-coverprofile" and coverage["branch_pct"] != "N/A":
+        invalid("Go 只有语句块级覆盖，coverage.branch_pct 必须为 N/A")
+    if not (isinstance(coverage["raw"], list) and all(isinstance(item, str) for item in coverage["raw"])):
+        invalid("coverage.raw 应为原始文件路径的数组")
+
+    modules = coverage["modules"]
+    if not isinstance(modules, dict):
+        invalid("coverage.modules 应为以模块名为键的对象")
+        modules = {}
+    for module, summary in sorted(modules.items()):
+        if not (isinstance(summary, dict) and is_pct(summary.get("line_pct"), True)
+                and is_pct(summary.get("branch_pct"), True) and is_count(summary.get("uncovered_total"))):
+            invalid("coverage.modules[%s] 应为含 line_pct、branch_pct 与 uncovered_total 的对象" % module)
+    uncovered = coverage["uncovered"]
+    if not isinstance(uncovered, list):
+        invalid("coverage.uncovered 应为数组")
+        uncovered = []
+    counts = collections.Counter()
+    for entry in uncovered:
+        shaped = (isinstance(entry, dict) and set(entry) == set(UNCOVERED_KEYS)
+                  and entry["kind"] in UNCOVERED_KINDS
+                  and all(isinstance(entry[key], str) for key in UNCOVERED_KEYS)
+                  and all(entry[key] for key in ("module", "file", "lines")))
+        if not shaped:
+            invalid("coverage.uncovered 中的条目应含 module、file、symbol、kind、lines 五个字符串字段")
+        else:
+            counts[entry["module"]] += 1
+    for module, count in sorted(counts.items()):
+        if count > UNCOVERED_CAP:
+            ctx.add("COVERAGE_UNCOVERED_OVER_CAP", rel, "模块 %s 的未覆盖条目有 %d 条，超过上限 %d" % (module, count, UNCOVERED_CAP))
+    omitted = coverage["uncovered_omitted"]
+    if not (isinstance(omitted, dict) and all(is_count(value) for value in omitted.values())):
+        invalid("coverage.uncovered_omitted 应为以模块名为键、省略条数为值的对象")
+        omitted = {}
+    for module in sorted(set(omitted) | set(counts)):
+        extra = omitted.get(module, 0)
+        if extra and counts.get(module, 0) != UNCOVERED_CAP:
+            invalid("coverage.uncovered_omitted[%s] 登记了省略 %d 条，但 uncovered 中该模块只有 %d 条" % (module, extra, counts.get(module, 0)))
+        if isinstance(modules.get(module), dict) and modules[module].get("uncovered_total") != counts.get(module, 0) + extra:
+            invalid("coverage.modules[%s].uncovered_total 应为 %d（保留 %d 条加省略 %d 条）" % (module, counts.get(module, 0) + extra, counts.get(module, 0), extra))
+
+    # 原始文件仍在运行期临时区时，重新解析并逐项比对，防止手工估算或抄错。
+    for raw in coverage["raw"]:
+        if not ctx.target.is_file(raw):
+            continue
+        try:
+            parsed = parse_coverage_file(ctx.target.path(raw), ctx.target)
+        except ValueError as exc:
+            ctx.add("COVERAGE_RAW_UNREADABLE", raw, str(exc))
+            continue
+        same = (parsed["status"] == "ok" and parsed["format"] == coverage["format"]
+                and same_pct(parsed["line_pct"], coverage["line_pct"])
+                and same_pct(parsed["branch_pct"], coverage["branch_pct"])
+                and coverage_entries(parsed) == coverage_entries(coverage)
+                and {module: summary["uncovered_total"] for module, summary in parsed["modules"].items()}
+                == {module: summary["uncovered_total"] for module, summary in modules.items() if isinstance(summary, dict)})
+        if not same:
+            ctx.add("COVERAGE_RAW_MISMATCH", raw, "按原始文件重新解析（%s，行覆盖 %s，分支覆盖 %s，未覆盖 %d 条）与 last_run.json 记录的结果不一致" % (parsed["format"], parsed["line_pct"], parsed["branch_pct"], len(parsed["uncovered"]) + sum(parsed["uncovered_omitted"].values())))
+    return coverage
+
+
+def h2_section(text, number):
+    """Markdown 文档中“## <number>. …”小节的正文；没有该小节返回 None。"""
+    heading = re.search(r"(?m)^## %d\. .*$" % number, text)
+    if not heading:
+        return None
+    following = re.search(r"(?m)^## ", text[heading.end():])
+    return text[heading.end():heading.end() + following.start()] if following else text[heading.end():]
+
+
+def table_rows(section):
+    """小节内的表格行 [[单元格…]]，分隔线已剔除；首行为表头。"""
+    rows = []
+    for raw in section.splitlines():
+        if raw.lstrip().startswith("|"):
+            cells = split_table_row(raw)
+            if not is_separator(cells):
+                rows.append(cells)
+    return rows
+
+
+def cell_pct(cell):
+    """从报告单元格取回覆盖率：`76.92%` 得 76.92，`N/A` 得 "N/A"；无法识别得 None。"""
+    text = cell.strip().strip("`").strip()
+    match = re.fullmatch(r"(\d+(?:\.\d+)?)\s*%", text)
+    return round(float(match.group(1)), 2) if match else ("N/A" if text == "N/A" else None)
+
+
+def column_of(rows, title):
+    """(表头行号, 列号)：首个含 title 单元格的行及其列；找不到返回 (None, None)。"""
+    for position, row in enumerate(rows):
+        for column, cell in enumerate(row):
+            if title in cell:
+                return position, column
+    return None, None
+
+
+def check_coverage_reports(ctx, coverage, produced):
+    """u_report 第 1 节统计表、第 4 节与 all_report 覆盖率列须与 last_run.json 的 coverage 一致。"""
+    ctx.enter("覆盖率")
+    if coverage is None:
+        return
+    measured = coverage["status"] == "ok"
+    modules = coverage["modules"] if isinstance(coverage["modules"], dict) else {}
+    uncovered = coverage["uncovered"] if isinstance(coverage["uncovered"], list) else []
+    if "unit" in produced:
+        rel = "%s/%s" % (REPORT_DIR, REPORT_FILES["unit"])
+        text = ctx.target.read(rel)
+        rows = table_rows(h2_section(text, 1) or "")
+        for title, value in (("行覆盖率", coverage["line_pct"]), ("分支覆盖率", coverage["branch_pct"])):
+            expected = "N/A" if not measured or value == "N/A" else round(value, 2)
+            position, column = column_of(rows, title)
+            data = rows[position + 1] if position is not None and position + 1 < len(rows) else []
+            actual = cell_pct(data[column]) if column is not None and column < len(data) else None
+            if actual is None or actual != expected:
+                ctx.add("COVERAGE_REPORT_MISMATCH", rel, "第 1 节统计表缺少“%s”列，或其值与 last_run.json 记录的 %r 不一致" % (title, expected))
+        section = h2_section(text, 4)
+        titled = re.search(r"(?m)^%s\s*$" % re.escape(COVERAGE_SECTION), text) is not None
+        if section is None or not titled:
+            ctx.add("COVERAGE_REPORT_MISMATCH", rel, "缺少“%s”小节" % COVERAGE_SECTION)
+        elif measured and len(table_rows(section)[1:]) != len(uncovered):
+            listed = len(table_rows(section)[1:])
+            ctx.add("COVERAGE_REPORT_MISMATCH", rel, "第 4 节列出 %d 条未覆盖符号，与 last_run.json 的 %d 条不一致" % (listed, len(uncovered)))
+    if "all" in produced:
+        rel = "%s/%s" % (REPORT_DIR, REPORT_FILES["all"])
+        rows = table_rows(h2_section(ctx.target.read(rel), 2) or "")
+        position, column = column_of(rows, "行覆盖率")
+        if position is None:
+            ctx.add("COVERAGE_REPORT_MISMATCH", rel, "第 2 节模块健康度矩阵缺少“行覆盖率”列")
+            return
+        for row in rows[position + 1:]:
+            module = row[0].strip("` ")
+            summary = modules.get(module)
+            expected = "N/A" if not measured or not isinstance(summary, dict) or summary.get("line_pct") == "N/A" \
+                else round(summary["line_pct"], 2)
+            actual = cell_pct(row[column]) if column < len(row) else None
+            if actual is None or actual != expected:
+                ctx.add("COVERAGE_REPORT_MISMATCH", rel, "模块健康度矩阵中模块 %s 的行覆盖率与 last_run.json 记录的 %r 不一致" % (module, expected))
+
+
 # ---- run 范围：last_run.json 与报告 ----
 def check_track(ctx, rel, name, summary, statuses, fields):
     """核对单轨执行摘要的字段完整性；字段有效时返回摘要，否则 None。"""
@@ -978,7 +1557,8 @@ def check_run_state(ctx):
     if unit is None or bench is None or data["scope"] not in SCOPE_REPORTS:
         return None
     return {"run_id": data["run_id"], "scope": data["scope"],
-            "unit": unit["status"], "benchmark": bench["status"]}
+            "unit": unit["status"], "benchmark": bench["status"],
+            "coverage": check_coverage_state(ctx, unit)}
 
 
 def read_report_header(ctx, rel, kind):
@@ -1033,6 +1613,7 @@ def check_reports(ctx, art, last_run):
         for match in ID_LOOSE_RE.finditer(text):
             if match.group(0) not in art.cases_by_id:
                 ctx.add("REPORT_CASE_UNKNOWN", rel, "报告引用了 cases 文档中不存在的用例 %s" % match.group(0), line_number(text, match.start()))
+    check_coverage_reports(ctx, last_run.get("coverage"), produced)
 
 
 def verify(ctx):
@@ -1132,22 +1713,39 @@ def report(ctx, as_json, receipt, label):
     return code
 
 
-def main(argv=None):
+def parse_arguments(argv):
     parser = argparse.ArgumentParser(prog="ta-verify", description="test-anything 产物校验器（只读，仅标准库）")
     parser.add_argument("--target", default=".", help="目标工程根目录，默认当前目录")
-    parser.add_argument("--scope", choices=list(SCOPES), default="all",
+    parser.add_argument("--scope", choices=list(SCOPES),
                         help="create=仅 create 产物；run=仅 run 产物；all=两者（默认）")
     parser.add_argument("--json", action="store_true", help="JSON 输出，供 CI/Agent 消费")
     parser.add_argument("--receipt", action="store_true",
                         help="按固定格式输出本次产物校验回执；只汇报 ta-verify 自身结果，不是 run 的对话回执")
+    parser.add_argument("--coverage", metavar="RAW_FILE",
+                        help="只解析这一个覆盖率原始文件并输出 coverage 协议对象；与 --scope、--receipt 互斥")
     args = parser.parse_args(argv)
+    if args.coverage and (args.scope or args.receipt):
+        parser.error("--coverage 不能与 --scope 或 --receipt 同用")
+    args.scope = args.scope or "all"
+    return args
 
+
+def main(argv=None):
+    args = parse_arguments(argv)
     if not os.path.isdir(args.target):
         print("ta-verify: 目标不可读，不是已存在的目录: %s" % args.target, file=sys.stderr)
         return EXIT_USAGE
     ctx = Ctx(Target(os.path.abspath(args.target)), args.scope)
     try:
+        if args.coverage:
+            # 覆盖率解析只做规整、不下结论：读不了或不属于三类格式时按用法错误返回。
+            coverage = parse_coverage_file(args.coverage, ctx.target)
+            print(json.dumps(coverage, ensure_ascii=False, indent=2))
+            return EXIT_OK
         verify(ctx)
+    except ValueError as exc:
+        print("ta-verify: 无法解析覆盖率文件: %s" % exc, file=sys.stderr)
+        return EXIT_USAGE
     except Unreadable as exc:
         print("ta-verify: 目标不可读: %s" % exc, file=sys.stderr)
         return EXIT_USAGE

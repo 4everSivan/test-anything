@@ -1,16 +1,20 @@
 # 单元测试执行报告 (`u_report`)
 
-> **module**: global ｜ **type**: unit_report ｜ **run_id**: 20261124_011704 ｜ **updated_at**: 2026-11-24 ｜ **status**: passed
+> **module**: global ｜ **type**: unit_report ｜ **run_id**: 20261124_102915 ｜ **updated_at**: 2026-11-24 ｜ **status**: passed
 
 ## 1. 执行概览
 
-- **执行命令**：`GOCACHE=$(pwd)/tests/tmp/go-build GOTMPDIR=$(pwd)/tests/tmp go test ./tests/unit -v -count=1`
+- **执行命令**：`GOCACHE=$(pwd)/tests/tmp/go-build GOTMPDIR=$(pwd)/tests/tmp go test ./tests/unit -v -count=1 -coverprofile=tests/tmp/coverage/unit.out -coverpkg=./...`
 - **退出码（Exit Code）**：`0`
-- **执行时间**：`2026-11-24T01:17:04+08:00`（总耗时：`960 ms`，为命令墙钟耗时，含编译与链接；`go test` 自报包耗时 `0.477s`）
+- **执行时间**：`2026-11-24T10:29:15+08:00`（总耗时：`2050 ms`，为命令墙钟耗时，含编译、链接与覆盖率插桩；`go test` 自报包耗时 `1.358s`）
 
-| 总用例数 | 通过 (Passed) | 失败 (Failed) | 跳过 (Skipped) | 通过率 |
-|---|---|---|---|---|
-| 6 | 6 | 0 | 0 | 100.0% |
+| 总用例数 | 通过 (Passed) | 失败 (Failed) | 跳过 (Skipped) | 通过率 | 行覆盖率 | 分支覆盖率 |
+|---|---|---|---|---|---|---|
+| 6 | 6 | 0 | 0 | 100.0% | 100% | N/A |
+
+- **覆盖率来源**：在同一次 `go test` 运行中通过 `-coverprofile` 采集，没有为覆盖率额外再跑一遍测试；`-coverpkg=./...` 覆盖模块内的全部业务包，原始 profile 写入 `tests/tmp/coverage/unit.out`，再由 `scripts/ta-verify --coverage` 解析后写入 `tests/.state/last_run.json` 的 `unit.coverage`。
+- **分支覆盖率为 N/A 的原因**：Go 的覆盖率只有语句块一级，不提供分支维度的数据，所以“分支覆盖率”不适用，如实记 N/A 而不是 0 或 100%。
+- **逐模块覆盖率**：`calc` 行 100%；`textutil` 行 100%。
 
 ## 2. 模块与用例执行明细
 
@@ -28,3 +32,7 @@
 ## 3. 失败与异常诊断
 
 本次运行全部通过，无失败用例。
+
+## 4. 未覆盖符号
+
+本次运行覆盖了全部已统计的业务源码语句块：`calc/calc.go` 4 个语句块、`textutil/textutil.go` 4 个语句块均已执行，`unit.coverage.uncovered[]` 为空，没有未覆盖符号。

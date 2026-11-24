@@ -8,6 +8,7 @@
 - **单元测试运行命令**：`python3 -B -m pytest tests/unit -o python_files="u_*_test.py" -o cache_dir=tests/tmp/.pytest_cache -vv --durations=0`
 - **基准测试运行命令**：`python3 -B -m pytest tests/benchmark -o python_files="b_*_bench.py" -o cache_dir=tests/tmp/.pytest_cache -q -s`
 - **运行期临时目录**：`tests/tmp/`（所有临时文件、缓存与覆盖率原始数据强制落盘于此；`-B` 禁止写入 `__pycache__`）
+- **覆盖率采集（仅 `run` 与 `run unittest`）**：`coverage.py` 可用时，在同一条单测命令外层包 `python3 -B -m coverage run --branch --source=textkit --data-file=tests/tmp/coverage/.coverage`，测试只跑一遍，不另行重跑；运行后以 `python3 -B -m coverage json --data-file=tests/tmp/coverage/.coverage -o tests/tmp/coverage/coverage.json` 导出。工具未安装时不自动安装，照常执行上面的单测命令，并把覆盖率记为不可用（N/A）。基准测试不采集覆盖率
 
 ## 2. 模块测试覆盖总表
 

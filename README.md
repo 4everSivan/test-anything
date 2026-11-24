@@ -239,6 +239,11 @@ flowchart TD
    - `error` 时报告第 3 节写 `### 运行器异常 (error)`（退出码、原始输出尾部摘录、疑似原因与复现命令），未测得的数值写 `n/a`，严禁出现“全部通过”。
 6. **产物校验只报告、不改判**：
    - 报告与 `last_run.json` 写完后，运行技能包内的只读校验器 `scripts/ta-verify --scope run`，把它的发现原样写入运行小结。它只核对结构与追溯一致性，**不因此改变任何 `passed` / `failed` / `error` 状态、计数、退出码或性能指标**，也不弱化上一条的诚实报告约束。校验 Exit 4 时如实报告违规，并通过 `create` 修复生成产物，而不是修改报告数字。
+7. **覆盖率只报告、不设门槛**：
+   - `run` 与 `run unittest` 在**同一次单测运行**中采集覆盖率（Python 用 `coverage run --branch`，Go 用 `-coverprofile`），不为覆盖率再跑一遍；基准测试不采集，Python 与 Go 之外的语言记 `not_supported`。
+   - 原始文件落 `tests/tmp/coverage/`，由技能包内的 `scripts/ta-verify --coverage` 解析后原样写入 `last_run.json.unit.coverage`，并渲染到单元测试报告第 1 节的覆盖率列、第 4 节“未覆盖符号”与全量报告的覆盖率列。
+   - 不自动安装任何覆盖率工具：工具缺失，或采集、解析失败时照常执行单测，覆盖率写 `N/A` 并说明原因，绝不填 0。
+   - 覆盖率没有阈值；采集或解析失败**不改变**单测轨的 `passed` / `failed` / `error` 判定与退出码，也不参与第 5 条的诚实报告判定。
 
 ---
 
@@ -249,7 +254,7 @@ flowchart TD
 ```text
 skills/test-anything/
 ├── README.md                         # 本需求与架构设计文档
-├── SKILL.md                          # 技能入口定义、触发语法 ($test-anything)、七大原则与参考路由表
+├── SKILL.md                          # 技能入口定义、触发语法 ($test-anything)、八大原则与参考路由表
 ├── workflow.yaml                     # 命令路由器（默认/create/run）与 create 四阶段、run 三分支状态机定义
 │
 ├── references/                       # 按需加载的领域规则手册（每条规则归属唯一参考文件）
@@ -589,9 +594,9 @@ JSON/YAML 数据夹具顶部固定保留 `_meta` 块，声明所属模块与引�
 - **退出码（Exit Code）**：`0`
 - **执行时间**：`2026-11-01T15:00:00+08:00`（总耗时：`420 ms`）
 
-| 总用例数 | 通过 (Passed) | 失败 (Failed) | 跳过 (Skipped) | 通过率 |
-|---|---|---|---|---|
-| 18 | 18 | 0 | 0 | 100.0% |
+| 总用例数 | 通过 (Passed) | 失败 (Failed) | 跳过 (Skipped) | 通过率 | 行覆盖率 | 分支覆盖率 |
+|---|---|---|---|---|---|---|
+| 18 | 18 | 0 | 0 | 100.0% | 91.4% | 83.3% |
 
 ## 2. 模块与用例执行明细
 
@@ -604,6 +609,13 @@ JSON/YAML 数据夹具顶部固定保留 `_meta` 块，声明所属模块与引�
 
 本次运行全部通过，无失败用例。
 <!-- 若存在失败用例，按 ### UT-xxx 逐条列出：关联 cases/ 文档路径、目标源码位置、失败断言摘要、真实错误堆栈代码块、单跑复现命令 -->
+
+## 4. 未覆盖符号
+
+| 模块 | 源码文件 | 符号 | 类型 | 未覆盖行 |
+|---|---|---|---|---|
+| `auth` | `src/auth/token.py` | `verify_jwt` | 未覆盖分支 | `42->45` |
+<!-- 由 last_run.json 的 unit.coverage.uncovered[] 逐条渲染；覆盖率不可用时写 N/A 与原因 -->
 ```
 
 #### 2. 性能基准报告格式（`b_report_latest.md`）
@@ -646,9 +658,9 @@ JSON/YAML 数据夹具顶部固定保留 `_meta` 块，声明所属模块与引�
 
 ## 2. 模块健康度矩阵
 
-| 模块 (`module`) | 单测通过率 | 基准核心吞吐 (`ops/sec`) | 未实现/待补项 (`Gaps`) | 综合评估 |
-|---|---|---|---|---|
-| `auth` | 12 / 12 (100%) | 70,422 ops/s (`BM-auth-001`) | 1 (`GAP-auth-01`) | 健康 |
+| 模块 (`module`) | 单测通过率 | 基准核心吞吐 (`ops/sec`) | 行覆盖率 | 未实现/待补项 (`Gaps`) | 综合评估 |
+|---|---|---|---|---|---|
+| `auth` | 12 / 12 (100%) | 70,422 ops/s (`BM-auth-001`) | 91.4% | 1 (`GAP-auth-01`) | 健康 |
 
 ## 3. 本次运行信息
 
@@ -723,7 +735,23 @@ JSON/YAML 数据夹具顶部固定保留 `_meta` 块，声明所属模块与引�
     "failed": 0,
     "skipped": 0,
     "duration_ms": 420,
-    "report": "tests/docs/reports/u_report_latest.md"
+    "report": "tests/docs/reports/u_report_latest.md",
+    "coverage": {
+      "status": "ok",
+      "reason": null,
+      "tool": "coverage.py",
+      "format": "coverage-json",
+      "line_pct": 91.4,
+      "branch_pct": 83.3,
+      "raw": ["tests/tmp/coverage/coverage.json"],
+      "modules": {
+        "auth": { "line_pct": 91.4, "branch_pct": 83.3, "uncovered_total": 3 }
+      },
+      "uncovered": [
+        { "module": "auth", "file": "src/auth/token.py", "symbol": "verify_jwt", "kind": "branch", "lines": "42->45" }
+      ],
+      "uncovered_omitted": {}
+    }
   },
   "benchmark": {
     "status": "completed",
@@ -738,3 +766,5 @@ JSON/YAML 数据夹具顶部固定保留 `_meta` 块，声明所属模块与引�
 ```
 
 `unit.status` 取值 `passed` / `failed` / `error` / `not_run`，`benchmark.status` 取值 `completed` / `failed` / `error` / `not_run`，按 [5.2 节状态确定性判定](#run-阶段行为准则) 由真实退出码与计数推导。
+
+`unit.coverage` 由 `scripts/ta-verify --coverage` 解析后原样写入：`status` 为 `ok`（已从本次原始文件解析）、`unavailable`（工具缺失或采集、解析失败）、`not_supported`（Python 与 Go 之外的语言）或 `not_run`（单测轨不在本次范围内）。未测得的值一律是字符串 `"N/A"`，不是 0；Go 的 `branch_pct` 恒为 `N/A`；`uncovered[]` 每个模块最多 50 条，其余条数计入 `uncovered_omitted`。完整字段协议见 [目录结构与状态管理](docs/devel/design/01-目录结构与状态管理.md)。

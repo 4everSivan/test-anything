@@ -4,7 +4,7 @@ This reference owns the read-only artifact verifier `scripts/ta-verify`: how `cr
 
 ## 1. Invocation and Boundaries
 
-1. **Run it from the skill package, never from the target project.** Resolve `scripts/ta-verify` relative to this skill's `SKILL.md` and pass the target explicitly: `scripts/ta-verify --target <target_root> [--scope create|run|all] [--json] [--receipt]`. Never copy the script into, or install anything in, the target project.
+1. **Run it from the skill package, never from the target project.** Resolve `scripts/ta-verify` relative to this skill's `SKILL.md` and pass the target explicitly: `scripts/ta-verify --target <target_root> [--scope create|run|all] [--json] [--receipt]`. Never copy the script into, or install anything in, the target project. To parse a coverage raw file, use the separate mode `scripts/ta-verify --target <target_root> --coverage <raw_file>` described in Section 8; it cannot be combined with `--scope` or `--receipt`.
 2. **Read-only.** `ta-verify` opens target files for reading only. It never writes, repairs, moves, or deletes anything; fixing a finding stays inside the `create` / `run` generate–check–repair loop.
 3. **Scope.** `create` checks the `create` artifacts (Section 3), `run` checks the `run` artifacts (Section 4), and `all` (the default) runs both.
 4. **Exit codes.** `0` no violations; `4` at least one deterministic violation; `2` a usage error or an unreadable target (missing directory, unreadable or non-UTF-8 file). Any other exit code means the tool itself failed: report it as a tool failure, never as a verdict on the artifacts.
@@ -47,6 +47,7 @@ The gate of Section 5 runs while `manifest.json` still records `create_status: "
 | Report set | `reports/` contains only the three `*_latest.md` files; the set of reports whose header carries the current `run_id` equals what the scope writes (`unittest` writes the unit report, `benchmark` the benchmark report, `all` all three) | [runner-and-reporting](runner-and-reporting.md) Section 3 |
 | Report headers | The single-line header under H1 is well formed and matches the report type; its status equals the track status in `last_run.json`, and the full-suite report takes the worst executed track | [state-and-backup](state-and-backup.md) Section 2, [runner-and-reporting](runner-and-reporting.md) Section 3 |
 | Report cases | Every `UT-` / `BM-` id mentioned in the current reports exists in `cases/` | [runner-and-reporting](runner-and-reporting.md) Section 3 |
+| Coverage | `unit.coverage` follows the protocol: a value that was not measured is `N/A`, never a number, and a `status` other than `ok` needs a reason; Go's `branch_pct` is `N/A`; at most 50 uncovered entries per module. When the raw files still exist under `tests/tmp/coverage/`, the recorded figures are recomputed from them and must match. The coverage columns of the unit report's Sections 1 and 4 and of the full-suite report's Section 2 agree with `last_run.json` | [runner-and-reporting](runner-and-reporting.md) Section 5, [state-and-backup](state-and-backup.md) Section 4.2 |
 
 Reports left from earlier runs carry an older `run_id` and are not compared against the current `last_run.json`.
 
@@ -74,3 +75,16 @@ After the reports and `tests/.state/last_run.json` are written, run `scripts/ta-
 1. **Golden samples.** `examples/python-sample` and `examples/go-sample` are real target projects whose `tests/` was produced by `create` and `run`. Both must exit `0` for `--scope all`.
 2. **Negative samples.** Each directory under `examples/negative/` is a minimal target project with exactly one injected violation. Its `expected.json` records the `scope`, the required `exit_code`, and the exact set of `ERROR` codes (or, for the warning sample, the exact set of `WARNING` codes with exit `0`).
 3. **Keep them in step with the rules.** When a rule change makes a golden sample fail, regenerate the artifacts in the same change and have them reviewed; never relax a check to keep old artifacts passing. Give every new diagnostic code a negative sample or a contract test.
+
+## 8. Coverage Parsing (`--coverage`)
+
+`run` uses the same script to turn a coverage raw file into the `unit.coverage` object of the [state-and-backup](state-and-backup.md) Section 4.2 protocol, so nobody has to compute percentages by hand:
+
+`scripts/ta-verify --target <target_root> --coverage <raw_file>`
+
+1. **Input.** Exactly one raw file, in one of three formats: coverage.py's JSON export (`coverage-json`), LCOV (`lcov`), or Go's native coverprofile (`go-coverprofile`). HTML reports and any other layout are rejected.
+2. **Output and exit codes.** The `coverage` object as JSON on stdout. Exit `0` when the file was parsed; exit `2` when it cannot be read or is not one of the three formats, with the reason on stderr. This mode never exits `4`: it normalizes data and passes no verdict.
+3. **What is counted.** Business source only: files under `tests/` and `_test_anything_backup/` are dropped, and the totals are recomputed from the remaining files instead of trusting a blended summary figure. `line_pct` and `branch_pct` are kept separate; a percentage that mixes lines and branches is not used.
+4. **Symbols.** Each uncovered line, branch, or block is attributed to the innermost enclosing function, read from the source with Python's `ast` or from Go `func` declarations for the two native formats, and from `FN` records for LCOV. A symbol that cannot be resolved is `<module>`.
+5. **Cap.** At most 50 uncovered entries per module are listed; the rest are counted in `uncovered_omitted`.
+6. **No branch data, no branch figure.** When the raw file carries no branch information, `branch_pct` is `N/A`; Go never has any.

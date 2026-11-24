@@ -8,9 +8,11 @@
 - **退出码（Exit Code）**：`<exit_code>`
 - **执行时间**：`<executed_at>`（总耗时：`<duration_ms> ms`）
 
-| 总用例数 | 通过 (Passed) | 失败 (Failed) | 跳过 (Skipped) | 通过率 |
-|---|---|---|---|---|
-| 0 | 0 | 0 | 0 | 0.0% |
+| 总用例数 | 通过 (Passed) | 失败 (Failed) | 跳过 (Skipped) | 通过率 | 行覆盖率 | 分支覆盖率 |
+|---|---|---|---|---|---|---|
+| 0 | 0 | 0 | 0 | 0.0% | N/A | N/A |
+
+<coverage_note>
 
 ## 2. 模块与用例执行明细
 
@@ -21,3 +23,7 @@
 ## 3. 失败与异常诊断
 
 <status_based_diagnosis>
+
+## 4. 未覆盖符号
+
+<coverage_section>

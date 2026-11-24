@@ -4,7 +4,7 @@
   "title": "run 报告写入覆盖率",
   "version": "v0.1.0",
   "milestone": "M1-test-anything-v0.1",
-  "status": "pending",
+  "status": "in_progress",
   "branch": "feat/T03-coverage-report",
   "depends_on": [
     "T02"
