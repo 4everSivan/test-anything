@@ -12,6 +12,7 @@
 
 ### Fixed
 
+- [C004](docs/devel/change/C004.json)：最小 CI 改为检出完整历史（`fetch-depth: 0`）。默认的浅克隆只有最新一个提交，使 `adflow-verify` 对已收口卡 `sync.commit` 的祖先校验误报 `COMMIT_NOT_ANCESTOR`，契约测试步骤因此失败。
 <!-- 只添加真实变更并关联真实 C/T 卡，不预登记示例卡或发布版本。
 真实卡片建立后的链接语法示例：
 - [T01](docs/devel/task/T01.json)：交付的能力。

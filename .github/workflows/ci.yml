@@ -17,7 +17,12 @@ jobs:
     name: Contract tests and ta-verify regression baseline
     runs-on: ubuntu-latest
     steps:
+      # 契约测试会运行 adflow-verify，它要核对已收口卡的 sync.commit 是 HEAD 的祖先。
+      # 默认的浅克隆只有最新一个提交、没有父提交，会被误判为 COMMIT_NOT_ANCESTOR，
+      # 因此这里检出完整历史。
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:

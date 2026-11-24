@@ -184,6 +184,14 @@ class TestContinuousIntegration(unittest.TestCase):
         for module in modules:
             self.assertTrue((ROOT / "tests" / module).is_file(), module)
 
+    def test_ci_checks_out_full_history_for_the_commit_ancestry_check(self):
+        # The governance test runs adflow-verify, which proves that a completed card's
+        # sync.commit is an ancestor of HEAD. A depth-1 checkout has no parent commit, so the
+        # verifier would report COMMIT_NOT_ANCESTOR and the whole step would fail.
+        workflow = read(self.WORKFLOW)
+        checkout = workflow.split("- uses: actions/checkout", 1)[1].split("\n      - ", 1)[0]
+        self.assertRegex(checkout, r"(?m)^\s+fetch-depth: 0\s*$")
+
     def test_ci_needs_no_ai_run_and_installs_no_toolchain(self):
         # The baseline only runs the contract tests and ta-verify (stdlib only) on committed samples.
         for forbidden in ("pip install", "pytest", "setup-go", "go-version", "coverage"):
