@@ -4,7 +4,7 @@
   "title": "产物校验器 ta-verify 与样例回归",
   "version": "v0.1.0",
   "milestone": "M1-test-anything-v0.1",
-  "status": "in_progress",
+  "status": "completed",
   "branch": "feat/T02-ta-verify",
   "depends_on": [],
   "target": {
@@ -64,10 +64,10 @@
     }
   ],
   "acceptance": {
-    "result": null,
+    "result": true,
     "run_id": "local-20261124-01",
-    "user_quote": "",
-    "signoff": "",
+    "user_quote": "确认验收，同意 completed",
+    "signoff": "sivan (AI代签，2026-11-24，会话确认对话框)",
     "checks": [
       {
         "item": "校验器契约与只读边界",
@@ -101,18 +101,20 @@
         "item": "自动化测试与治理门禁",
         "true_if": "全量单测 Exit 0、CI 全绿、scripts/adflow-verify --json Exit 0",
         "false_if": "任一测试失败、CI 红或 adflow-verify 报告违规",
-        "evidence": "已取证部分：PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v 运行 41 项测试全部 OK（Exit 0；原有 10 项加新增 31 项），并在不含 .git、local/ 与样例 tests/tmp 的干净副本上以 Python 3.8.10、3.9.13、3.13.7、3.14.0 分别复跑，均 41 项 OK；scripts/adflow-verify --json 与 --mode init --json 均 Exit 0（errors 0、warnings 0、advisories 0）。未取证部分：.github/workflows/ci.yml 已交付，其三个步骤已在干净副本按原文逐条执行通过，但分支尚未推送，远端 GitHub Actions 没有真实运行记录，“CI 全绿”尚待 CI 实际执行后裁决。",
-        "result": null
+        "evidence": "本地：PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v 运行 41 项测试全部 OK（Exit 0；原有 10 项加新增 31 项），并在不含 .git、local/ 与样例 tests/tmp 的干净副本上以 Python 3.8.10、3.9.13、3.13.7、3.14.0 分别复跑，均 41 项 OK；scripts/adflow-verify --json 与 --mode init --json 均 Exit 0（errors 0、warnings 0、advisories 0）。远端 CI：推送 feat/T02-ta-verify（提交 01e61a1）触发 GitHub Actions 运行 45303166816（https://github.com/4everSivan/test-anything/actions/runs/45303166816），runner 为 ubuntu-26.04 / CPython 3.12.16，结论 success；日志可见契约测试两步与 ta-verify 回归一步共 41 条用例 ok，python-sample 与 go-sample 的 --scope all 均 exit code 0（各带 1 条 TESTS_OPTIONAL_DIR_MISSING 提示，系干净检出中 tests/tmp 不存在，不影响退出码）。",
+        "result": true
       }
     ]
   },
   "sync": {
-    "commit": ""
+    "commit": "01e61a1687638a408ef0e6c2b93da6b1d8ef6192"
   },
   "gate": {
     "tool": "adflow-verify",
-    "version": "1.6.0",
-    "ran_at": "",
-    "exit_code": null
+    "version": "1.8.1",
+    "ran_at": "2026-11-24",
+    "exit_code": 0,
+    "from_status": "in_progress",
+    "target_status": "completed"
   }
 }

@@ -62,7 +62,7 @@
       "title": "产物校验器 ta-verify 与样例回归",
       "version": "v0.1.0",
       "milestone": "M1-test-anything-v0.1",
-      "status": "in_progress",
+      "status": "completed",
       "branch": "feat/T02-ta-verify",
       "depends_on": [],
       "file": "docs/devel/task/T02.json"
