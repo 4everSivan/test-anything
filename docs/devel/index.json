@@ -2,7 +2,7 @@
   "$schema": "adflow-devel-index-v1",
   "project": "test-anything",
   "created": "2026-11-01",
-  "last_change": "2026-11-23",
+  "last_change": "2026-11-24",
   "status": "active",
   "description": "研发内场核心工作区总账路由，聚合现行设计基线与执行卡池",
   "subsystems": [
@@ -85,7 +85,7 @@
       "id": "DESIGN-TA-VERIFY",
       "title": "产物校验与样例回归 设计方案",
       "file": "docs/devel/design/04-产物校验与样例回归.md",
-      "status": "draft",
+      "status": "baseline",
       "topics": [
         "ArtifactVerification"
       ]
