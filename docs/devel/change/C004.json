@@ -4,7 +4,7 @@
   "title": "CI 浅克隆使已收口卡的 sync.commit 祖先校验失败",
   "version": "v0.1.0",
   "type": "BugFix",
-  "status": "in_progress",
+  "status": "verified",
   "branch": "fix/C004-ci-full-history",
   "is_hotfix": false,
   "target": {
@@ -52,8 +52,8 @@
   "verification": {
     "result": true,
     "run_id": "local-20261124-02",
-    "user_quote": "",
-    "signoff": "",
+    "user_quote": "确认验收，同意 verified",
+    "signoff": "sivan (AI代签，2026-11-24，会话确认对话框)",
     "checks": [
       {
         "item": "自动化测试",
@@ -82,13 +82,17 @@
   "sync": {
     "design_pinned": true,
     "changelog": true,
-    "commit": "",
+    "commit": "d0f76c18d6634b95e024bcd1896eacfeb2bceb3b",
     "tag": ""
   },
   "gate": {
     "tool": "adflow-verify",
     "version": "1.8.1",
-    "ran_at": "",
-    "exit_code": null
+    "ran_at": "2026-11-24",
+    "exit_code": 0,
+    "from_status": "in_progress",
+    "target_status": "verified",
+    "signed_quote": "确认验收，同意 verified",
+    "signed_rejection_count": 0
   }
 }

@@ -64,7 +64,7 @@
     "C004": {
       "title": "CI 浅克隆使已收口卡的 sync.commit 祖先校验失败",
       "version": "v0.1.0",
-      "status": "in_progress",
+      "status": "verified",
       "branch": "fix/C004-ci-full-history",
       "file": "docs/devel/change/C004.json"
     }
