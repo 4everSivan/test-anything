@@ -4,7 +4,7 @@
   "title": "补齐 module_scope 语义与 COV-GAP 约束并修正 T04 遗留文档冲突",
   "version": "v0.1.0",
   "type": "BugFix",
-  "status": "in_progress",
+  "status": "verified",
   "branch": "fix/C005-module-scope-covgap-docs",
   "is_hotfix": false,
   "target": {
@@ -70,10 +70,10 @@
     }
   },
   "verification": {
-    "result": null,
-    "run_id": "",
-    "user_quote": "",
-    "signoff": "",
+    "result": true,
+    "run_id": "local-20261124-06",
+    "user_quote": "确认 C005 验收，同意 verified 并合并 closed",
+    "signoff": "sivan（AI 代签，2026-11-24；原话「确认 C005 验收，同意 verified 并合并 closed」来自本地会话确认对话框）",
     "checks": [
       {
         "item": "module_scope 规则完备",
@@ -107,8 +107,8 @@
         "item": "治理门禁与反向影响",
         "true_if": "全量单测 Exit 0、黄金样例 --scope all Exit 0、负向样例全部符合 expected、CI 全绿、scripts/adflow-verify --json 与 --mode init Exit 0；help/create/run 路由、ta-verify 只读与退出码 0/4/2 不变",
         "false_if": "任一测试或样例失败、CI 红、adflow-verify 报告违规，改变了既有路由与校验器契约，或改变了 T02、T03、T04 已有的诊断码与退出码语义（包括 CASE_DEPRECATED_WITH_CODE 为 Exit 4、哈希不一致仅告警仍 Exit 0）",
-        "evidence": "本地：PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v 运行 75 项全部 OK（Exit 0）；scripts/ta-verify --target examples/python-sample --scope all 与 examples/go-sample --scope all 均 Exit 0（0 error/0 warning/0 advisory）；负向样例由 test_ta_verify 与 test_module_scope 按 expected.json 全部断言通过；scripts/adflow-verify --json 与 --mode init --json 均 Exit 0（errors/warnings/advisories 全 0）。git diff --stat 显示未改动 scripts/、templates/ 与黄金样例，仅文档、workflow.yaml、README/SKILL、负向样例一个 plan 行、测试、CHANGELOG 与卡片/索引；路由与 ta-verify 退出码语义未变。远端 CI 尚未触发（分支未推送，待授权后核验）。",
-        "result": null
+        "evidence": "本地：PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v 运行 75 项全部 OK（Exit 0）；scripts/ta-verify --target examples/python-sample --scope all 与 examples/go-sample --scope all 均 Exit 0（0 error/0 warning/0 advisory）；负向样例由 test_ta_verify 与 test_module_scope 按 expected.json 全部断言通过；scripts/adflow-verify --json 与 --mode init --json 均 Exit 0（errors/warnings/advisories 全 0）。git diff --stat 显示未改动 scripts/、templates/ 与黄金样例，仅文档、workflow.yaml、README/SKILL、负向样例一个 plan 行、测试、CHANGELOG 与卡片/索引；路由与 ta-verify 退出码语义未变。远端 CI：推送 d6237f6 触发 GitHub Actions 运行 45344114015，结论 success（32s），契约测试、黄金样例 --scope all、负向样例、覆盖率、module_scope/COV-GAP 五个步骤全部 success。",
+        "result": true
       }
     ]
   },
@@ -116,13 +116,17 @@
   "sync": {
     "design_pinned": true,
     "changelog": true,
-    "commit": "",
+    "commit": "d6237f6f6b8482468d9c4ebcbb515f7caf2badd7",
     "tag": ""
   },
   "gate": {
     "tool": "adflow-verify",
     "version": "1.8.1",
-    "ran_at": "",
-    "exit_code": null
+    "ran_at": "2026-11-24",
+    "exit_code": 0,
+    "from_status": "in_progress",
+    "target_status": "verified",
+    "signed_quote": "确认 C005 验收，同意 verified 并合并 closed",
+    "signed_rejection_count": 0
   }
 }
