@@ -18,7 +18,7 @@
     "description": "嗅探三处缺陷是否仍存在：manifest 模板缺少 create 进度字段、workflow 缺少存量迁移确认不变量、单测报告模板仍以“全部通过”作为无条件默认文字",
     "command": "python3 -I -c \"import json, pathlib as p, sys; m = json.loads(p.Path('templates/state/manifest.json.tpl').read_text(encoding='utf-8')); w = p.Path('workflow.yaml').read_text(encoding='utf-8'); u = p.Path('templates/docs/u_report.md.tpl').read_text(encoding='utf-8'); sys.exit(0 if 'create_status' in m and 'INV_CONFIRM_LEGACY_MOVE' in w and '本次运行全部通过' not in u else 1)\"",
     "expected": "Exit 1 表示缺陷仍存在需修复；Exit 0 表示三处均已修复",
-    "is_completed": false,
+    "is_completed": true,
     "evidence": "修复前执行预检命令 Exit 1（三处缺陷均存在，非前序提交意外修复）；修复后复测同一命令 Exit 0。"
   },
   "callback": {
