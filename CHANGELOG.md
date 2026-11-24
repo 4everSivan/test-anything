@@ -20,6 +20,7 @@
 - [C001](docs/devel/change/C001.json)：修复 `create` 中断后不可续跑（`manifest.json` 以 `create_status`/`completed_stage` 记录进度并支持续跑）、存量 `tests/` 未经用户确认即迁移，以及运行异常被误报为通过（报告新增 `error` 状态及确定性判定规则）。
 - [C002](docs/devel/change/C002.json)：`run` 仅原地覆盖 `*_latest.md`，不再按批次堆积 `*_report_<run_id>.md`；`all_report` 第 3 节改为本次运行信息，旧批次报告须经用户确认后才清理。
 - [C004](docs/devel/change/C004.json)：最小 CI 改为检出完整历史（`fetch-depth: 0`）。默认的浅克隆只有最新一个提交，使 `adflow-verify` 对已收口卡 `sync.commit` 的祖先校验误报 `COMMIT_NOT_ANCESTOR`，契约测试步骤因此失败。
+- [C005](docs/devel/change/C005.json)：补齐 `module_scope` 语义（Stage 0 写入去重后的 `--module` 列表、续跑沿用记录值、全量完成重置为 `[]`、裸调增量写 `[]`、fresh/legacy 禁用 `--module`、Stage 4 只局部替换在范围模块）与 `COV-GAP` 三条登记约束（仅 `module_scope` 内模块、同 `run_id` 替换不增号、源码哈希不一致整批不登记）；00 补 `create --module` 路由与 T02/T04 演进行，`INV_DRAFT_FIRST_PIPELINE` 改为不按 `u_`/`b_` 拆分，`INV_COVERAGE_HONEST_AND_PASSIVE` 统一为覆盖率永不触发第二次运行（仅覆盖率包裹崩溃时允许普通命令重跑一次）；修正负向样例 plan/cases 状态不一致与 01/02 §4.3 过时表述。
 <!-- 只添加真实变更并关联真实 C/T 卡，不预登记示例卡或发布版本。
 真实卡片建立后的链接语法示例：
 - [T01](docs/devel/task/T01.json)：交付的能力。

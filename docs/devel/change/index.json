@@ -81,7 +81,7 @@
     "C005": {
       "title": "补齐 module_scope 语义与 COV-GAP 约束并修正 T04 遗留文档冲突",
       "version": "v0.1.0",
-      "status": "draft",
+      "status": "in_progress",
       "branch": "fix/C005-module-scope-covgap-docs",
       "file": "docs/devel/change/C005.json"
     }

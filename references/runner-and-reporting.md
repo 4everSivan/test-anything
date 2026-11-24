@@ -72,7 +72,7 @@ After writing the reports:
 Coverage shows which business source lines, branches, or statement blocks the unit tests did not execute. It is reported, never used as a gate, and it never changes a test verdict.
 
 1. **Collect for the unit track only, inside the same run.**
-   - `run` and `run unittest`: add the coverage flags of the stack to the unit test command and execute it once. Never execute the unit tests a second time for coverage.
+   - `run` and `run unittest`: add the coverage flags of the stack to the unit test command and execute it once. Coverage itself never triggers a second test run. The only exception: when wrapping the run in the coverage tool itself makes the runner crash so that no test conclusion can be obtained, re-run the plain unit command once and write the reason in `reason`.
    - `run benchmark`: do not collect; write `coverage.status: "not_run"`.
    - The first-batch stacks are Python and Go. For any other `stack.language`, write `coverage.status: "not_supported"` and name the language in `reason`.
 2. **Stack commands.** Run them from the target root and put the raw data in `tests/tmp/coverage/`:
@@ -84,4 +84,4 @@ Coverage shows which business source lines, branches, or statement blocks the un
    - `u_report_latest.md`: add the `行覆盖率` and `分支覆盖率` columns to the Section 1 statistics table and render Section 4 `未覆盖符号` from `uncovered[]`. When `uncovered_omitted` is not empty, state how many entries per module the cap left out.
    - `all_report_latest.md`: add the `行覆盖率` column to the Section 2 module health matrix, one cell per module from `coverage.modules`.
    - Whenever `status` is not `ok`, write `N/A` in every coverage cell and the `reason` in place of the coverage details. Never write `0` for a value that was not measured.
-6. **No thresholds and no re-judging.** Do not fail, pass, or rank anything on coverage. A collection or parsing problem never changes a track's `passed` / `failed` / `error` status, the counts, or the exit code, and coverage plays no part in `INV_NO_PASS_WITHOUT_EVIDENCE`. If wrapping the unit command in a coverage tool would change the test result, run the plain command instead and record coverage as unavailable.
+6. **No thresholds and no re-judging.** Do not fail, pass, or rank anything on coverage. A collection or parsing problem never changes a track's `passed` / `failed` / `error` status, the counts, or the exit code, and coverage plays no part in `INV_NO_PASS_WITHOUT_EVIDENCE`. If wrapping the unit command in a coverage tool would change the test result, run the plain command instead and record coverage as unavailable; the single re-run exception in item 1 covers only a wrapper-induced crash that leaves no test conclusion.
