@@ -4,7 +4,7 @@
   "title": "修正 00 设计文档中的“尚未落地”表述",
   "version": "v0.1.0",
   "type": "BugFix",
-  "status": "in_progress",
+  "status": "verified",
   "branch": "fix/C003-overview-status-wording",
   "is_hotfix": false,
   "target": {
@@ -36,7 +36,7 @@
     {
       "scope": "设计正文现状表述",
       "before": "第 1 节称技能执行资源尚未落地实现；4.3 将 SKILL.md、workflow.yaml、references/、templates/ 列为待交付",
-      "after": "第 1 节与 4.3 如实写明 v0.1.0 已交付的技能资源与回归测试，并列出同属 0.1 后续规划的 T02～T04；不改动任何业务规则",
+      "after": "第 1 节与 4.3 如实写明 v0.1.0 已交付的技能资源与回归测试，并注明 T01～T04 均已完成；不改动任何业务规则",
       "impact": "仅设计文档表述，无代码与行为影响"
     }
   ],
@@ -52,8 +52,8 @@
   "verification": {
     "result": true,
     "run_id": "local-20261124-05",
-    "user_quote": "",
-    "signoff": "",
+    "user_quote": "确认 C003 验收，同意 verified 并合并 closed",
+    "signoff": "sivan (AI代签，2026-11-24，会话确认)",
     "checks": [
       {
         "item": "表述与现状一致",
@@ -82,13 +82,17 @@
   "sync": {
     "design_pinned": true,
     "changelog": true,
-    "commit": "",
+    "commit": "584a0095d0268674cc02092d570d8b127a5dc4fd",
     "tag": ""
   },
   "gate": {
     "tool": "adflow-verify",
     "version": "1.8.1",
-    "ran_at": "",
-    "exit_code": null
+    "ran_at": "2026-11-24",
+    "exit_code": 0,
+    "from_status": "in_progress",
+    "target_status": "verified",
+    "signed_quote": "确认 C003 验收，同意 verified 并合并 closed",
+    "signed_rejection_count": 0
   }
 }
