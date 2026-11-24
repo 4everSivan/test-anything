@@ -4,7 +4,7 @@
   "title": "修正 00 设计文档中的“尚未落地”表述",
   "version": "v0.1.0",
   "type": "BugFix",
-  "status": "verified",
+  "status": "closed",
   "branch": "fix/C003-overview-status-wording",
   "is_hotfix": false,
   "target": {
@@ -90,8 +90,8 @@
     "version": "1.8.1",
     "ran_at": "2026-11-24",
     "exit_code": 0,
-    "from_status": "in_progress",
-    "target_status": "verified",
+    "from_status": "verified",
+    "target_status": "closed",
     "signed_quote": "确认 C003 验收，同意 verified 并合并 closed",
     "signed_rejection_count": 0
   }
