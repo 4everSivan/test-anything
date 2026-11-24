@@ -62,7 +62,7 @@
   "acceptance": {
     "result": true,
     "run_id": "local-20261124-04",
-    "user_quote": "确认；是我确认的代签",
+    "user_quote": "确认",
     "signoff": "Bella（AI 代签，2026-11-24；原话「确认」来自本地会话；Bella 于 2026-11-24 14:16 在 test-anything 项目组群追认 T04、C003 两次代签，原话「是我确认的代签」）",
     "checks": [
       {
