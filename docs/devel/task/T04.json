@@ -19,8 +19,8 @@
     "description": "先确认前置 C001 已 closed，未关闭则本卡不得开工",
     "command": "python3 -I -c \"import json, sys; sys.exit(0 if json.load(open('docs/devel/change/C001.json', encoding='utf-8'))['status'] == 'closed' else 1)\"",
     "expected": "Exit 1 表示 C001 尚未关闭，本卡保持 pending 不开工；Exit 0 后再核查 workflow.yaml 是否已支持 create --module 以判断是否已实现",
-    "is_completed": false,
-    "evidence": ""
+    "is_completed": true,
+    "evidence": "Bella 签署 C001 之前执行预检命令 Exit 1（C001 状态 in_progress），本卡保持 pending 未开工；C001 由 Bella 确认并 closed 后（原话「确认验收 C001、C002，同意 verified 并 closed」，signoff 记录 K5 代签、经 K9 转达）复测同一命令 Exit 0，且 workflow.yaml 当时不含任何 --module 支持，判定需开发交付。"
   },
   "callback": {
     "before": [
@@ -38,30 +38,30 @@
       "id": "T04-1",
       "title": "create --module 增量生成",
       "capability": "create --module <module> 按模块限定各阶段与 manifest；变更回写 01；用例编号只追加不重排；源码已删除能力的用例在 cases 中标记 deprecated 并停止生成代码，不物理删除",
-      "done": false
+      "done": true
     },
     {
       "id": "T04-2",
       "title": "deprecated 豁免与负向样例",
       "capability": "ta-verify --scope create 对 deprecated 用例豁免“须有对应测试函数”的检查，但仍带 @case 代码的 deprecated 用例要报出；新增对应负向样例",
-      "done": false
+      "done": true
     },
     {
       "id": "T04-3",
       "title": "COV-GAP 缺口补测",
       "capability": "读取 last_run uncovered[] 并记录来源 run_id；Python 按分支或行、Go 按语句块；仅为可映射到既有 FP 的缺口补测，其余只登记；超出每模块 50 条上限部分以计数登记为一条汇总 COV-GAP",
-      "done": false
+      "done": true
     },
     {
       "id": "T04-4",
       "title": "协议与模板同步",
       "capability": "同步修订 01 的 manifest 协议与 templates/state/manifest.json.tpl",
-      "done": false
+      "done": true
     }
   ],
   "acceptance": {
-    "result": null,
-    "run_id": "",
+    "result": true,
+    "run_id": "local-20261124-04",
     "user_quote": "",
     "signoff": "",
     "checks": [
@@ -69,36 +69,36 @@
         "item": "前置条件",
         "true_if": "开工时 C001 已由 Bella 签署并处于 closed，precheck 命令 Exit 0",
         "false_if": "C001 未 closed 即开工，或 C001 的代签未经 Bella 亲口同意（经 Bella 亲口同意的代签视同 Bella 签署）",
-        "evidence": "",
-        "result": null
+        "evidence": "预检命令在 C001 关闭前 Exit 1（2026-11-24 早间实测，本卡保持 pending 未开工）；C001 于 2026-11-24 由 Bella 确认并 closed（verification.user_quote 为「确认验收 C001、C002，同意 verified 并 closed」，signoff 为「Bella (K5 代签，2026-11-24，经 K9 转达 Bella 会话原话)」，sync.commit e678bfe 为 HEAD 祖先），之后预检命令 Exit 0，本卡才置 in_progress 开工；未由 AI 代签。",
+        "result": true
       },
       {
         "item": "增量范围正确",
         "true_if": "--module 只改动目标模块的 drafts/plans/cases/代码与 manifest 条目，其他模块零改动；编号只追加；deprecated 用例保留且不再生成代码",
         "false_if": "改动了非目标模块、重排或复用编号，或物理删除用例",
-        "evidence": "",
-        "result": null
+        "evidence": "规则：workflow.yaml 新增 `$test-anything create --module <module>` 路由（scope: module、repeatable）与 module_scope_protocol，Stage 2 声明编号只追加、Stage 3 声明 deprecated 保留规格并停止生成代码；state-and-backup 与 01 设计写明只有在范围模块的条目、文件与 sources 哈希被更新，completed_stage 只按在范围模块推进。限域实测（python-sample 副本）：以 --module wordcount 的产物形态执行后，slugify 的 7 个受管文件（draft/plan/两个 cases/单测/基准/夹具）SHA-256 逐一比对零变化；wordcount 用例编号仍为 UT-wordcount-001～003，无重排或复用；黄金样例中 UT-slugify-005（能力已移除）的规格卡片与总表行保留、状态 deprecated、单测文件中无对应函数；manifest 写入 module_scope=[\"wordcount\"] 后 ta-verify --scope create 仍 Exit 0。校验：test_module_scope.py 的 5 项契约测试覆盖路由、协议块、Stage 1–3 规则与模板字段；变异校验（仓库临时副本）删除路由、删除序号只追加、删除 deprecated 动作、删除模板 module_scope 均使对应测试以 AssertionError 失败。",
+        "result": true
       },
       {
         "item": "缺口补测可追溯",
         "true_if": "每条 COV-GAP 记录来源 run_id；补测只针对能映射到既有 FP 的缺口，其余仅登记；超限部分有计数汇总",
         "false_if": "为无 FP 映射的缺口生成测试、丢失 run_id，或静默丢弃超限缺口",
-        "evidence": "",
-        "result": null
+        "evidence": "规则：doc-scanning 新增 4.1 节与 workflow Stage 1 动作要求逐条登记 COV-GAP 并注明 `来源: coverage(<run_id>)`，仅能映射既有 `FP-` 的缺口进入 Stage 2–4 补测，映射不到的只登记并提示补文档，单模块超 50 条部分以一条汇总 COV-GAP 记明数量。实测：在 python-sample 副本上按该规则读取 last_run（run_id 20261124_102731）的 6 条 uncovered[]，生成 6 条 COV-GAP 行，逐条带 `来源: coverage(20261124_102731)`，并按符号映射到 FP-wordcount-02（top_words）与 FP-wordcount-01（count_words）；校验：test_module_scope 断言协议块包含 run_id 来源、仅 FP 映射与超限汇总三项要求，变异删除 doc-scanning 4.1 节或改写 COV-GAP 动作后对应测试失败。",
+        "result": true
       },
       {
         "item": "校验门禁",
         "true_if": "Stage 4 在 ta-verify Exit 0 前不写 complete；deprecated 负向样例报出预期诊断码",
         "false_if": "绕过 ta-verify 门禁，或 deprecated 豁免导致漏报带代码的 deprecated 用例",
-        "evidence": "",
-        "result": null
+        "evidence": "Stage 4 完成门禁沿用 T02 的 INV_VERIFY_BEFORE_COMPLETE（tests/test_artifact_gate.py 的排序断言继续通过）；新增负向样例 examples/negative/deprecated-case-with-code 中 UT-wordcount-002 标为 deprecated 但测试函数仍在，ta-verify --scope create 返回 exit 4，ERROR 级诊断码恰好为 CASE_DEPRECATED_WITH_CODE（无 CASE_WITHOUT_TEST_CODE 等连带码）；黄金样例的 deprecated 用例因豁免而不产生 CASE_WITHOUT_TEST_CODE，三范围均 Exit 0。变异校验：从 EXEMPT_STATUSES 移除 deprecated 后黄金样例测试失败；把报告 deprecated 绑定代码的分支改为不可达后负向样例测试失败。",
+        "result": true
       },
       {
         "item": "自动化测试与治理门禁",
         "true_if": "全量单测 Exit 0、CI 全绿、scripts/adflow-verify --json Exit 0",
         "false_if": "任一测试失败、CI 红或 adflow-verify 报告违规",
-        "evidence": "",
-        "result": null
+        "evidence": "本地：PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests 运行 70 项全部 OK（Exit 0；T03 的 61 项加新增 9 项 T04 测试）；在不含 local/ 与样例 tests/tmp 的干净副本上以 Python 3.8.10、3.9.13、3.13.7、3.14.0 复跑均通过（3.13/3.14 各跳过 1 项因未装 coverage.py 的真实采集对照）；scripts/adflow-verify --json 与 --mode init --json 均 Exit 0。远端 CI：推送 feat/T04-incremental-create-module（提交 2374c10）触发 GitHub Actions 运行 45332352452（https://github.com/4everSivan/test-anything/actions/runs/45332352452），五个步骤全部 success；日志显示 test_skill_contract 10 项、test_artifact_gate 16 项、test_ta_verify 16 项、test_coverage 19 项（真实 Python 采集对照跳过 1 项）、test_module_scope 9 项，共 70 项；黄金样例与负向样例步骤均通过。",
+        "result": true
       }
     ]
   },
