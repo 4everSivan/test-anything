@@ -4,7 +4,7 @@
   "title": "交付 test-anything v0.1 全栈测试生成与执行技能",
   "version": "v0.1.0",
   "milestone": "M1-test-anything-v0.1",
-  "status": "in_progress",
+  "status": "completed",
   "branch": "feat/T01-test-anything-v0.1",
   "depends_on": [],
   "target": {
@@ -59,8 +59,8 @@
   "acceptance": {
     "result": true,
     "run_id": "local-20261101-15",
-    "user_quote": "",
-    "signoff": "",
+    "user_quote": "确认验收，同意 completed",
+    "signoff": "sivan (AI代签，2026-11-24，会话确认对话框)",
     "checks": [
       {
         "item": "技能入口、工作流与参考路由完备性",
@@ -86,12 +86,14 @@
     ]
   },
   "sync": {
-    "commit": ""
+    "commit": "e678bfee3fdd9d6f9b9d9df9cc7a410db8fc8354"
   },
   "gate": {
     "tool": "adflow-verify",
-    "version": "1.6.0",
-    "ran_at": "",
-    "exit_code": null
+    "version": "1.8.1",
+    "ran_at": "2026-11-24",
+    "exit_code": 0,
+    "from_status": "in_progress",
+    "target_status": "completed"
   }
 }

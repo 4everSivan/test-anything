@@ -1,7 +1,7 @@
 {
   "$schema": "https://ad-flow.org/schemas/task-index.v1.json",
   "phase": "v0.1.0",
-  "updated_at": "2026-11-23",
+  "updated_at": "2026-11-24",
   "milestones": {
     "M1-test-anything-v0.1": {
       "title": "交付 test-anything v0.1 全栈测试生成与执行技能",
@@ -53,7 +53,7 @@
       "title": "交付 test-anything v0.1 全栈测试生成与执行技能",
       "version": "v0.1.0",
       "milestone": "M1-test-anything-v0.1",
-      "status": "in_progress",
+      "status": "completed",
       "branch": "feat/T01-test-anything-v0.1",
       "depends_on": [],
       "file": "docs/devel/task/T01.json"
