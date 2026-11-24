@@ -6,6 +6,8 @@
 
 ### Added
 
+- [T02](docs/devel/task/T02.json)：新增只读产物校验器 `scripts/ta-verify`（单文件、仅标准库，退出码 0 / 4 / 2）。`create` 须待其 `--scope create` Exit 0 才置 `create_status: complete`，`run` 写完报告后只报告其 `--scope run` 校验结果、不改测试判定；新增规则手册 `references/artifact-verification.md`、Python 与 Go 黄金样例、六个负向样例与最小 CI。
+
 ### Changed
 
 ### Fixed

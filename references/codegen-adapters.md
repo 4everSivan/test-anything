@@ -13,7 +13,7 @@ Name generated files in `tests/unit/` and `tests/benchmark/` with `u_` and `b_` 
 | TypeScript / JS (`vitest` / `jest` / `node --test`) | `u_<module>.test.ts` (or `.js`) | `b_<module>.bench.ts` (or `.js`) | `test("UT-<module>-<NNN>: <slug>", ...)` / `bench("BM-<module>-<NNN>: <slug>", ...)` |
 | Rust (`cargo test` / `cargo bench`) | `u_<module>_test.rs` | `b_<module>_bench.rs` | `fn test_ut_<module>_<NNN>_<slug>()` / `fn bench_bm_<module>_<NNN>_<slug>()` |
 
-Ensure the runner command recorded in `manifest.json.stack` explicitly discovers `u_*` and `b_*` files in `tests/unit/` and `tests/benchmark/` (for example, `pytest tests/unit -o python_files="u_*_test.py" -o cache_dir=tests/tmp/.pytest_cache`).
+Ensure the runner command recorded in `manifest.json.stack` explicitly discovers `u_*` and `b_*` files in `tests/unit/` and `tests/benchmark/` (for example, `pytest tests/unit -o python_files="u_*_test.py" -o cache_dir=tests/tmp/.pytest_cache`). Commands run from the target root. When a toolchain insists on an absolute cache path (Go rejects a relative `GOCACHE` and `GOTMPDIR`), spell the `tests/tmp/` location as `$(pwd)/tests/tmp/...` so the redirection still works from any clone location.
 
 ## 2. Internal Test Code Format Contract
 
@@ -59,3 +59,5 @@ After generating `tests/unit/` and `tests/benchmark/`:
 - Run a static syntax or compile check (e.g., `python3 -m py_compile`, `go test -c -o tests/tmp/check.test`, `tsc --noEmit`).
 - If a check fails due to a defect in the generated test file (wrong import path, typo in helper call, syntax error), repair the generated test file locally (at most **3 rounds**).
 - Never modify target project business source files during `create`.
+
+This syntax precheck is not the Stage 4 completion gate. The gate is the read-only `scripts/ta-verify --scope create` run described in [artifact-verification](artifact-verification.md) Section 5, with a repair budget of its own.

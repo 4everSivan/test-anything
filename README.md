@@ -22,6 +22,7 @@
 | **存量资产零破坏备份 (`_test_anything_backup/`)** | 对齐 `ad-flow` 隔离快照机制：目标工程已有非受管 `tests/` 时，先展示影响摘要并经用户明确确认，再原子迁移至 `/_test_anything_backup/original_tests/tests/`（自动配置 `.gitignore`），并在 `create` 时融合吸收原有测试逻辑 |
 | **真实执行与诚实报告 (`run`)** | 调用宿主真实测试运行器执行测试，临时产物强制收拢至 `tests/tmp/`；**严禁在 `run` 阶段篡改目标项目业务源码以“凑通过”**，如实记录通过率、失败堆栈与性能基准数据 |
 | **全英文标识与 `u_` / `b_` 前缀分流** | `tests/docs/` 与代码目录统一采用英文标识命名，不拆分子目录区分单测与基准测试，统一通过文件名前缀 `u_`（unittest）与 `b_`（benchmark）标识类型 |
+| **先校验后完成、只报告不改判 (`ta-verify`)** | 技能包内置只读产物校验器 `scripts/ta-verify`（单文件、仅标准库）：`create` 只有在它 Exit 0 之后才能置 `create_status: complete`；`run` 写完报告后只报告它的校验结果，绝不因此改动测试判定。Python、Go 两个黄金样例与一组负向样例构成回归基线，由技能自身的 CI 持续验证 |
 
 ---
 
@@ -171,6 +172,7 @@ flowchart TD
     S2["阶段 2：测试计划与矩阵编排 (plans/)\n探测目标语言与测试/基准框架\n编制功能点-用例映射矩阵 -> 落盘 tests/docs/plans/test_plan.md & <module>_plan.md"] --> S3
     S3["阶段 3：用例规格定稿 (cases/)\n将草稿收敛为结构化用例规格\n落盘 tests/docs/cases/u_<module>_cases.md & b_<module>_cases.md"] --> S4
     S4["阶段 4：代码生成与总账登记 (unit/ & benchmark/ & .state/)\n校准源码真实函数签名与导入路径\n生成 tests/unit/u_*、tests/benchmark/b_*、tests/fixtures/\n更新 tests/docs/README.md 与 tests/.state/manifest.json"]
+    S4 --> S5["阶段 4 末尾：产物校验门禁（只读）\nscripts/ta-verify --scope create\nExit 0 才置 create_status: complete；Exit 4 最多修复 3 轮"]
 ```
 
 | 阶段 | 核心输入 | 关键动作 | 交付产物 | 阻断与回退策略 |
@@ -179,7 +181,7 @@ flowchart TD
 | **Stage 1: Draft** | `docs/`（含 `docs/official/`）、`README.md`、API 规范、`_test_anything_backup/original_tests/` | 识别业务模块与具体功能点，拆解正常路径、边界条件、异常分支（归入单测候选）及高耗时/高频吞吐路径（归入基准候选），**率先写入 `drafts/`** | `tests/docs/drafts/<module>_draft.md` | 若项目既无文档也无源码/存量测试，停留在空草稿并报告缺失来源 |
 | **Stage 2: Plan** | `drafts/`、项目构建配置（如 `pyproject.toml`、`go.mod`、`package.json`、`Cargo.toml`） | 确定目标语言测试运行器与基准测试框架；建立“功能点 ↔ 用例 ID ↔ 目标源码符号”矩阵 | `tests/docs/plans/test_plan.md`、`tests/docs/plans/<module>_plan.md` | 若存在多个未决测试框架，优先沿用项目已有依赖或标准库框架并在计划中注明 |
 | **Stage 3: Case** | `drafts/`、`plans/`、目标工程源码 | 核对每个候选功能点在源码中的实际实现状态，剔除幻觉接口，编写完备的 `u_` 单测规格与 `b_` 基准规格 | `tests/docs/cases/u_<module>_cases.md`、`tests/docs/cases/b_<module>_cases.md` | 若文档声明的功能在源码中尚未实现，在 `cases/` 中标记为 `status: unimplemented/todo`，不生成伪造通过的测试代码 |
-| **Stage 4: Codegen** | `cases/`、目标工程源码模块导出与函数签名 | 生成可编译运行的 `tests/unit/u_<module>_test.*`、`tests/benchmark/b_<module>_bench.*` 及 `tests/fixtures/`；写入 `manifest.json` 与 `docs/README.md` | `unit/`、`benchmark/`、`fixtures/`、`docs/README.md`、`.state/manifest.json` | 静态语法检查不通过时在生成阶段局部修复测试代码（最多 3 轮）；不修改目标项目业务源码 |
+| **Stage 4: Codegen** | `cases/`、目标工程源码模块导出与函数签名 | 生成可编译运行的 `tests/unit/u_<module>_test.*`、`tests/benchmark/b_<module>_bench.*` 及 `tests/fixtures/`；写入 `manifest.json` 与 `docs/README.md`；阶段末尾运行只读产物校验门禁 `scripts/ta-verify --scope create` | `unit/`、`benchmark/`、`fixtures/`、`docs/README.md`、`.state/manifest.json` | 静态语法检查不通过时在生成阶段局部修复测试代码（最多 3 轮）；产物校验 Exit 4 时只修复它指出的生成文件（最多 3 轮），仍未通过则保持 `create_status: in_progress` 并如实报告；不修改目标项目业务源码 |
 
 #### 增量 `create` 更新规则
 
@@ -190,7 +192,7 @@ flowchart TD
 
 #### 中断续跑规则
 
-每次 `create` 在阶段 0 结束时将 `manifest.json` 置为 `create_status: in_progress`，此后每个阶段对全部在范围模块完成后把 `completed_stage` 更新为该阶段号，阶段 4 完成后置为 `create_status: complete`。受阻或中断的阶段不推进 `completed_stage`；再次执行 `$test-anything` 或 `$test-anything create` 时识别为续跑，不备份、不迁移，从 `completed_stage + 1` 继续，已完成阶段的产物重新读取校验而非重写。续跑期间 `run` 门禁报错并提示先完成 `create`。
+每次 `create` 在阶段 0 结束时将 `manifest.json` 置为 `create_status: in_progress`，此后每个阶段对全部在范围模块完成后把 `completed_stage` 更新为该阶段号，阶段 4 完成并通过只读产物校验门禁（`scripts/ta-verify --scope create` Exit 0）后置为 `create_status: complete`。受阻或中断的阶段不推进 `completed_stage`；再次执行 `$test-anything` 或 `$test-anything create` 时识别为续跑，不备份、不迁移，从 `completed_stage + 1` 继续，已完成阶段的产物重新读取校验而非重写。续跑期间 `run` 门禁报错并提示先完成 `create`。
 
 ---
 
@@ -210,6 +212,7 @@ flowchart TD
     R_UNIT --> R3
     R_BENCH --> R3
     R3 --> R4["生成报告与更新状态\n写入 tests/docs/reports/ (u_ / b_ / all_)\n更新 tests/.state/last_run.json 与 tests/docs/README.md"]
+    R4 --> R5["只读产物校验（只报告）\nscripts/ta-verify --scope run\n结果原样写入运行小结，不改变测试判定"]
 ```
 
 #### `run` 阶段行为准则
@@ -234,6 +237,8 @@ flowchart TD
 5. **状态确定性判定（严禁误报通过）**：
    - 按顺序取首个命中项：范围外为 `not_run`；退出码非 0 但未解析出失败用例（崩溃、收集/导入错误、用法错误、超时）、未实际执行任何用例（未收集或全部跳过）、计数无法解析，或退出码为 0 却解析出失败，均判 `error`；存在失败用例判 `failed`；仅当退出码为 0、无失败且至少 1 条用例实际通过（基准为至少 1 条产出指标）时判 `passed`（基准为 `completed`）。`all_report` 取最差轨状态。
    - `error` 时报告第 3 节写 `### 运行器异常 (error)`（退出码、原始输出尾部摘录、疑似原因与复现命令），未测得的数值写 `n/a`，严禁出现“全部通过”。
+6. **产物校验只报告、不改判**：
+   - 报告与 `last_run.json` 写完后，运行技能包内的只读校验器 `scripts/ta-verify --scope run`，把它的发现原样写入运行小结。它只核对结构与追溯一致性，**不因此改变任何 `passed` / `failed` / `error` 状态、计数、退出码或性能指标**，也不弱化上一条的诚实报告约束。校验 Exit 4 时如实报告违规，并通过 `create` 修复生成产物，而不是修改报告数字。
 
 ---
 
@@ -244,7 +249,7 @@ flowchart TD
 ```text
 skills/test-anything/
 ├── README.md                         # 本需求与架构设计文档
-├── SKILL.md                          # 技能入口定义、触发语法 ($test-anything)、六大原则与参考路由表
+├── SKILL.md                          # 技能入口定义、触发语法 ($test-anything)、七大原则与参考路由表
 ├── workflow.yaml                     # 命令路由器（默认/create/run）与 create 四阶段、run 三分支状态机定义
 │
 ├── references/                       # 按需加载的领域规则手册（每条规则归属唯一参考文件）
@@ -252,25 +257,40 @@ skills/test-anything/
 │   ├── doc-scanning.md               # 文档功能点扫描规则、边界/性能特征提取及存量测试融合方法
 │   ├── case-and-plan-design.md       # drafts -> plans -> cases 流转契约、u_/b_ 命名与用例 ID 追溯规范
 │   ├── codegen-adapters.md           # 多语言（Python/Go/TS/Rust 等）unit 与 benchmark 代码生成与源码契约校准规范
-│   └── runner-and-reporting.md       # run 门禁校验、真实测试执行、tests/tmp/ 隔离与 u_/b_/all_ 报告编写规范
+│   ├── runner-and-reporting.md       # run 门禁校验、真实测试执行、tests/tmp/ 隔离与 u_/b_/all_ 报告编写规范
+│   └── artifact-verification.md      # 只读产物校验器 scripts/ta-verify：调用契约、诊断码溯源、create 完成门禁、run 只报告校验
 │
-└── templates/                        # 目标工程 tests/ 下生成的文档与状态文件标准模板
-    ├── backup-README.md.tpl          # _test_anything_backup/README.md 备份安全声明模板
-    ├── docs/
-    │   ├── README.md.tpl             # tests/docs/README.md 测试中心总览模板
-    │   ├── draft.md.tpl              # tests/docs/drafts/<module>_draft.md 功能点与测试草稿模板
-    │   ├── test_plan.md.tpl          # tests/docs/plans/test_plan.md 全局测试总计划模板
-    │   ├── module_plan.md.tpl        # tests/docs/plans/<module>_plan.md 模块测试计划与映射矩阵模板
-    │   ├── u_cases.md.tpl            # tests/docs/cases/u_<module>_cases.md 单元测试规格模板
-    │   ├── b_cases.md.tpl            # tests/docs/cases/b_<module>_cases.md 基准测试规格模板
-    │   ├── u_report.md.tpl           # tests/docs/reports/u_report_*.md 单元测试报告模板
-    │   ├── b_report.md.tpl           # tests/docs/reports/b_report_*.md 基准测试报告模板
-    │   └── all_report.md.tpl         # tests/docs/reports/all_report_latest.md 全量综合报告模板
-    └── state/
-        ├── manifest.json.tpl         # tests/.state/manifest.json 双向追溯总账模板
-        ├── last_run.json.tpl         # tests/.state/last_run.json 最近运行状态快照模板
-        └── config.json.tpl           # tests/.state/config.json 可选配置模板
+├── scripts/
+│   ├── ta-verify                     # 【只读产物校验器】单文件、仅标准库；核对目标工程 tests/ 的结构、命名、追溯锚点与状态文件（Exit 0 / 4 / 2）
+│   └── adflow-verify                 # ad-flow 研发治理校验器（卡片收口门禁，不属于技能运行时）
+│
+├── examples/                         # 【ta-verify 回归基线】
+│   ├── python-sample/                # Python 黄金样例：由 create / run 真实生成的 tests/ 产物
+│   ├── go-sample/                    # Go 黄金样例：由 create / run 真实生成的 tests/ 产物
+│   └── negative/                     # 负向样例：各注入一种违规，expected.json 登记预期退出码与诊断码
+│
+├── templates/                        # 目标工程 tests/ 下生成的文档与状态文件标准模板
+│   ├── backup-README.md.tpl          # _test_anything_backup/README.md 备份安全声明模板
+│   ├── docs/
+│   │   ├── README.md.tpl             # tests/docs/README.md 测试中心总览模板
+│   │   ├── draft.md.tpl              # tests/docs/drafts/<module>_draft.md 功能点与测试草稿模板
+│   │   ├── test_plan.md.tpl          # tests/docs/plans/test_plan.md 全局测试总计划模板
+│   │   ├── module_plan.md.tpl        # tests/docs/plans/<module>_plan.md 模块测试计划与映射矩阵模板
+│   │   ├── u_cases.md.tpl            # tests/docs/cases/u_<module>_cases.md 单元测试规格模板
+│   │   ├── b_cases.md.tpl            # tests/docs/cases/b_<module>_cases.md 基准测试规格模板
+│   │   ├── u_report.md.tpl           # tests/docs/reports/u_report_*.md 单元测试报告模板
+│   │   ├── b_report.md.tpl           # tests/docs/reports/b_report_*.md 基准测试报告模板
+│   │   └── all_report.md.tpl         # tests/docs/reports/all_report_latest.md 全量综合报告模板
+│   └── state/
+│       ├── manifest.json.tpl         # tests/.state/manifest.json 双向追溯总账模板
+│       ├── last_run.json.tpl         # tests/.state/last_run.json 最近运行状态快照模板
+│       └── config.json.tpl           # tests/.state/config.json 可选配置模板
+│
+├── tests/                            # 技能包契约测试：workflow / references / templates 契约、ta-verify 行为与样例回归
+└── .github/workflows/                # 最小 CI：契约测试 + 黄金样例 Exit 0 + 负向样例命中预期诊断码
 ```
+
+校验器的完整调用契约与两处接入点的规则正文见 [`references/artifact-verification.md`](references/artifact-verification.md)；黄金样例的来源与维护约定见 [`examples/README.md`](examples/README.md)，负向样例清单见 [`examples/negative/README.md`](examples/negative/README.md)。
 
 ---
 

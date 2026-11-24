@@ -1,0 +1,8 @@
+{
+  "description": "manifest.json 缺少协议必填字段 stack。",
+  "scope": "create",
+  "exit_code": 4,
+  "codes": [
+    "MANIFEST_FIELD_MISSING"
+  ]
+}

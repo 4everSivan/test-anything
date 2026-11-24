@@ -1,0 +1,35 @@
+{
+  "run_id": "20261124_010147",
+  "scope": "all",
+  "executed_at": "2026-11-24T01:01:47+08:00",
+  "unit": {
+    "status": "passed",
+    "command": "python3 -B -m pytest tests/unit -o python_files=\"u_*_test.py\" -o cache_dir=tests/tmp/.pytest_cache -vv --durations=0",
+    "exit_code": 0,
+    "total": 6,
+    "passed": 6,
+    "failed": 0,
+    "skipped": 0,
+    "duration_ms": 263,
+    "report": "tests/docs/reports/u_report_latest.md"
+  },
+  "benchmark": {
+    "status": "completed",
+    "command": "python3 -B -m pytest tests/benchmark -o python_files=\"b_*_bench.py\" -o cache_dir=tests/tmp/.pytest_cache -q -s",
+    "exit_code": 0,
+    "total": 2,
+    "duration_ms": 344,
+    "metrics_summary": {
+      "BM-slugify-001": {
+        "titles_per_sec": 1563626,
+        "avg_ms_per_op": 6.4
+      },
+      "BM-wordcount-001": {
+        "ops_per_sec": 630.7,
+        "avg_us_per_op": 1585.4
+      }
+    },
+    "report": "tests/docs/reports/b_report_latest.md"
+  },
+  "summary_report": "tests/docs/reports/all_report_latest.md"
+}

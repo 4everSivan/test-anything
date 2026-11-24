@@ -4,7 +4,7 @@
   "title": "产物校验器 ta-verify 与样例回归",
   "version": "v0.1.0",
   "milestone": "M1-test-anything-v0.1",
-  "status": "pending",
+  "status": "in_progress",
   "branch": "feat/T02-ta-verify",
   "depends_on": [],
   "target": {
@@ -17,8 +17,8 @@
     "description": "检查技能包内是否已存在 scripts/ta-verify 与 examples/ 样例目录",
     "command": "python3 -I -c \"import pathlib as p, sys; sys.exit(0 if p.Path('scripts/ta-verify').is_file() and p.Path('examples/python-sample').is_dir() and p.Path('examples/go-sample').is_dir() and p.Path('examples/negative').is_dir() else 1)\"",
     "expected": "Exit 1 表示尚未实现需开发交付；Exit 0 表示可能已实现，需核对验收项",
-    "is_completed": false,
-    "evidence": ""
+    "is_completed": true,
+    "evidence": "开工前执行预检命令 Exit 1（scripts/ta-verify 与 examples/ 三类样例目录均不存在，非前序提交意外实现）；完成 T02-1~T02-5 后复测同一命令 Exit 0。"
   },
   "callback": {
     "before": [
@@ -36,36 +36,36 @@
       "id": "T02-1",
       "title": "ta-verify 校验器与诊断码",
       "capability": "交付 scripts/ta-verify 单文件标准库实现：只读目标工程、不安装进目标工程；--scope create|run|all、--json、--receipt（仅输出自身校验回执，不是 run 的对话回执）；退出码 0/4/2；每个诊断码登记其依据的 references/ 条款并有漂移测试；manifest 哈希与磁盘不符为 WARNING 不致 Exit 4",
-      "done": false
+      "done": true
     },
     {
       "id": "T02-2",
       "title": "Python 与 Go 样例工程及黄金产物",
       "capability": "交付 examples/python-sample 与 examples/go-sample 及已提交的黄金产物，按结构而非逐字比对",
-      "done": false
+      "done": true
     },
     {
       "id": "T02-3",
       "title": "负向样例",
       "capability": "交付 examples/negative/：缺 @case 锚点、manifest 字段缺失或结构非法、u_/b_ 前缀错误、孤立用例各对应一个预期诊断码；另设手改哈希不符的警告样例，断言 Exit 0 并出现警告码",
-      "done": false
+      "done": true
     },
     {
       "id": "T02-4",
       "title": "接入 create/run 流程",
       "capability": "workflow.yaml 与 references/ 中：create Stage 4 末尾须 ta-verify Exit 0 才可写 create_status: complete，最多 3 轮修复；run Stage 3 只报告校验结果，不改变测试判定",
-      "done": false
+      "done": true
     },
     {
       "id": "T02-5",
       "title": "最小 CI",
       "capability": "交付 CI：运行契约测试、黄金样例断言 Exit 0、每个负向样例断言 Exit 4 且出现预期诊断码、警告样例断言 Exit 0",
-      "done": false
+      "done": true
     }
   ],
   "acceptance": {
     "result": null,
-    "run_id": "",
+    "run_id": "local-20261124-01",
     "user_quote": "",
     "signoff": "",
     "checks": [
@@ -73,35 +73,35 @@
         "item": "校验器契约与只读边界",
         "true_if": "ta-verify 为单文件标准库脚本，对目标工程零写入，参数与退出码 0/4/2 与 04 设计一致，--receipt 只输出自身校验回执",
         "false_if": "校验器写入目标工程、依赖第三方库、被安装进目标工程，或退出码/参数与设计不符",
-        "evidence": "",
-        "result": null
+        "evidence": "scripts/ta-verify 为单文件脚本（scripts/ 下没有 ta_verify* 同名模块），带 #!/usr/bin/env python3 shebang 与可执行位；AST 解析出的 8 个导入 argparse、collections、datetime、hashlib、json、os、re、sys 经 sysconfig 标准库路径核对均属标准库（test_single_file_stdlib_script_with_python_shebang ok）。用法错误（--scope nope）、目标目录不存在、目标是文件三种情形均 Exit 2 且只在 stderr 说明（test_usage_errors_and_unreadable_targets_exit_2 ok）；黄金样例 Exit 0、负向样例 Exit 4，在文本、--json、--receipt、--json --receipt 四种输出模式下退出码一致（test_exit_codes_are_0_pass_and_4_violation_in_every_output_mode ok）。--receipt 固定输出“门禁 / 校验项 / 问题 / 处置”四行并标注“目标只读”，只汇报 ta-verify 自身结果（test_receipt_reports_the_verification_in_a_fixed_format ok）。只读边界：对 python-sample、go-sample、negative/orphan-case 三个目标在三个范围、两种输出模式下运行，前后逐文件比对大小、mtime_ns 与 SHA-256 完全一致且无新增文件（test_verifier_never_writes_into_the_target ok）；在仓库临时副本中给 verify() 注入写文件语句后，该测试以 AssertionError 失败。另以非 UTF-8 的 cases 文档、manifest、报告各探测一次，均 Exit 2 并报“目标不可读”。脚本只存在于技能包内，以 --target 指向目标工程，未复制或安装到任何样例中。",
+        "result": true
       },
       {
         "item": "样例回归覆盖",
         "true_if": "Python、Go 黄金样例 Exit 0；每个负向样例 Exit 4 且出现其预期诊断码；哈希不符警告样例 Exit 0 并出现警告码",
         "false_if": "任一黄金样例非 0、任一负向样例未报出预期诊断码，或哈希不符被判为 Exit 4",
-        "evidence": "",
-        "result": null
+        "evidence": "python-sample 与 go-sample 在 create / run / all 三个范围下均 Exit 0（errors 0、warnings 0；test_golden_samples_pass_every_scope ok）。examples/negative/ 六个样例中，missing-case-anchor、manifest-field-missing、manifest-structure-invalid、wrong-track-prefix、orphan-case 均 Exit 4，且 ERROR 级诊断码恰好是各自 expected.json 登记的 CODE_FUNCTION_WITHOUT_ANCHOR、MANIFEST_FIELD_MISSING、MANIFEST_MODULE_INVALID、DOC_TRACK_PREFIX_INVALID、CASE_WITHOUT_TEST_CODE；警告样例 hash-mismatch Exit 0，WARNING 级诊断码恰好是 MANIFEST_HASH_MISMATCH（test_samples_hit_their_expected_exit_code_and_codes、test_card_required_violations_are_covered ok）。黄金产物取自真实运行：python-sample 的 run_id 为 20261124_010147（pytest 单测 6 passed、Exit 0；基准 2 passed、Exit 0），go-sample 的 run_id 为 20261124_011704（go test 单测 6 条 PASS、Exit 0；基准 2 项、Exit 0）。Go 样例生成期间 go vet 预检发现 UT-textutil-002 读取了夹具却使用硬编码（declared and not used: fixture），经 1 轮只改生成测试文件的局部修复后通过。",
+        "result": true
       },
       {
         "item": "诊断码依据可追溯",
         "true_if": "每个诊断码登记其依据的 references/ 条款，漂移测试在条款缺失或改名时失败",
         "false_if": "存在未登记依据的诊断码，或漂移测试缺失/不生效",
-        "evidence": "",
-        "result": null
+        "evidence": "CHECKS 注册表共 49 个诊断码（45 ERROR、1 WARNING、3 ADVISORY），每个都登记了依据文件与小节标题，依据分布在 5 份 references/ 手册；test_every_code_traces_to_a_live_clause 逐码核对依据文件存在、小节标题仍在正文中且带修复提示（ok）。漂移敏感性与强制登记：在仓库临时副本中把 state-and-backup.md 的“### 4.1 `tests/.state/manifest.json`”小节改名后，依据该小节的 8 个诊断码子测试均以 AssertionError 失败；Ctx.add 对未登记的诊断码抛 KeyError（test_unregistered_codes_cannot_be_emitted ok）；test_provenance_check_notices_a_renamed_clause 验证条款改名即判缺失（ok）。",
+        "result": true
       },
       {
         "item": "流程接入与门禁",
         "true_if": "create Stage 4 在 ta-verify Exit 0 前不写 complete 且修复不超过 3 轮；run Stage 3 校验只报告不改判",
         "false_if": "create 未经校验即置 complete，或 run 因校验结果改变 passed/failed 判定",
-        "evidence": "",
-        "result": null
+        "evidence": "workflow.yaml 新增 FATAL 不变量 INV_VERIFY_BEFORE_COMPLETE。Stage 4 动作顺序为：写入 manifest 模块记录（keeping create_status 'in_progress'）→ 运行 scripts/ta-verify --scope create → 仅 Exit 0 才置 create_status 'complete' 与 completed_stage 4 → Exit 4 时只修复生成文件（at most 3 rounds），仍未通过则保持 in_progress；completion_condition 与 on_blocker 同步声明（test_complete_is_written_only_after_the_gate_passes、test_failed_gate_keeps_in_progress_with_bounded_repair ok）。run Stage 3 在报告与 last_run.json 写入后运行 --scope run 并把发现原样写入运行小结，动作文本声明 never change any status, count, exit code, or metric 且不弱化 INV_NO_PASS_WITHOUT_EVIDENCE，轨道状态仍只由真实退出码与解析计数推导（test_verification_runs_after_the_reports_are_written、test_verification_never_changes_a_test_result、test_track_status_is_still_derived_from_real_execution_only ok）。规则正文归 references/artifact-verification.md 第 5、6 节，SKILL.md 新增第 7 条原则与 Rule Owners 行，state-and-backup、runner-and-reporting、codegen-adapters 以指针引用而不复述。变异校验（仓库临时副本）：调换 Stage 4 中“跑门禁”与“置 complete”两行、删去 never change 句、在校验动作末尾追加“Correct any report…”、去掉 3 轮修复上限，四种变异均被对应测试检出。门禁时序已在两个黄金样例上实跑：manifest 保持 in_progress 与 completed_stage 3 时 --scope create 均 Exit 0，之后才置 complete。",
+        "result": true
       },
       {
         "item": "自动化测试与治理门禁",
         "true_if": "全量单测 Exit 0、CI 全绿、scripts/adflow-verify --json Exit 0",
         "false_if": "任一测试失败、CI 红或 adflow-verify 报告违规",
-        "evidence": "",
+        "evidence": "已取证部分：PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v 运行 41 项测试全部 OK（Exit 0；原有 10 项加新增 31 项），并在不含 .git、local/ 与样例 tests/tmp 的干净副本上以 Python 3.8.10、3.9.13、3.13.7、3.14.0 分别复跑，均 41 项 OK；scripts/adflow-verify --json 与 --mode init --json 均 Exit 0（errors 0、warnings 0、advisories 0）。未取证部分：.github/workflows/ci.yml 已交付，其三个步骤已在干净副本按原文逐条执行通过，但分支尚未推送，远端 GitHub Actions 没有真实运行记录，“CI 全绿”尚待 CI 实际执行后裁决。",
         "result": null
       }
     ]

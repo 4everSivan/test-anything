@@ -1,0 +1,8 @@
+{
+  "description": "测试函数缺少 @case / @feature 锚点注释：u_wordcount_test.py 末尾多了一个未登记规格的临时校验函数。",
+  "scope": "create",
+  "exit_code": 4,
+  "codes": [
+    "CODE_FUNCTION_WITHOUT_ANCHOR"
+  ]
+}

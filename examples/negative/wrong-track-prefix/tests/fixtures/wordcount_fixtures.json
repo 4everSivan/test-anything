@@ -1,0 +1,13 @@
+{
+  "_meta": {
+    "managed_by": "test-anything",
+    "module": "wordcount",
+    "used_by_cases": ["UT-wordcount-001", "UT-wordcount-002", "UT-wordcount-003", "BM-wordcount-001"]
+  },
+  "sentence": "the quick brown fox jumps over the lazy dog",
+  "sentence_word_count": 9,
+  "blank_texts": ["", "   \t\n "],
+  "negative_limit": -1,
+  "corpus_words": ["alpha", "beta", "gamma", "delta"],
+  "corpus_repeats": 2500
+}

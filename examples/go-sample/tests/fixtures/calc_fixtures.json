@@ -1,0 +1,18 @@
+{
+  "_meta": {
+    "managed_by": "test-anything",
+    "module": "calc",
+    "used_by_cases": ["UT-calc-001", "UT-calc-002", "UT-calc-003"]
+  },
+  "add": {
+    "a": 2,
+    "b": 3,
+    "expected": 5
+  },
+  "divide": {
+    "dividend": -7,
+    "divisor": 2,
+    "expected": -3
+  },
+  "zero_divisor": 0
+}

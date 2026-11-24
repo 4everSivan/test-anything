@@ -1,0 +1,30 @@
+{
+  "_meta": {
+    "managed_by": "test-anything",
+    "module": "textutil",
+    "used_by_cases": ["UT-textutil-001", "UT-textutil-002", "UT-textutil-003"]
+  },
+  "reverse_cases": [
+    {
+      "input": "hello",
+      "expected": "olleh"
+    }
+  ],
+  "boundary_cases": [
+    {
+      "input": "",
+      "expected": ""
+    },
+    {
+      "input": "héllo",
+      "expected": "olléh"
+    }
+  ],
+  "palindromes": [
+    "Never odd or even",
+    "step on no pets"
+  ],
+  "not_palindromes": [
+    "test-anything"
+  ]
+}

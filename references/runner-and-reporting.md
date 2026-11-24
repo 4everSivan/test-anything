@@ -63,4 +63,5 @@ Generated when running `$test-anything run` (scope `all`) from [templates/docs/a
 After writing the reports:
 - Update `tests/.state/last_run.json` with the actual execution metrics and report paths.
 - Refresh the `最新运行状态` column in `tests/docs/README.md`.
+- Run the report-only artifact check described in [artifact-verification](artifact-verification.md) Section 6 (`scripts/ta-verify --scope run`) and copy its findings into the run summary unchanged. It reports structure and traceability; it never alters a status, count, exit code, or metric.
 - If `tests/docs/reports/` still holds per-run reports written by earlier skill versions (`u_report_<YYYYMMDD_HHMMSS>.md`, `b_report_<YYYYMMDD_HHMMSS>.md`), list their count in the run summary and offer to delete them. Delete only those files, and only after the user's explicit confirmation; otherwise leave them untouched.

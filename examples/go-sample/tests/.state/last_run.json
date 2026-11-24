@@ -1,0 +1,41 @@
+{
+  "run_id": "20261124_011704",
+  "scope": "all",
+  "executed_at": "2026-11-24T01:17:04+08:00",
+  "unit": {
+    "status": "passed",
+    "command": "GOCACHE=$(pwd)/tests/tmp/go-build GOTMPDIR=$(pwd)/tests/tmp go test ./tests/unit -v -count=1",
+    "exit_code": 0,
+    "total": 6,
+    "passed": 6,
+    "failed": 0,
+    "skipped": 0,
+    "duration_ms": 960,
+    "report": "tests/docs/reports/u_report_latest.md"
+  },
+  "benchmark": {
+    "status": "completed",
+    "command": "GOCACHE=$(pwd)/tests/tmp/go-build GOTMPDIR=$(pwd)/tests/tmp go test ./tests/benchmark -run '^$' -bench . -benchmem -count=1",
+    "exit_code": 0,
+    "total": 2,
+    "duration_ms": 3554,
+    "metrics_summary": {
+      "BM-calc-001": {
+        "ns_per_op": 403.5,
+        "ops_per_sec": 2478315,
+        "bytes_per_op": 0,
+        "allocs_per_op": 0,
+        "iterations": 2887225
+      },
+      "BM-textutil-001": {
+        "ns_per_op": 23507,
+        "ops_per_sec": 42539,
+        "bytes_per_op": 21248,
+        "allocs_per_op": 2,
+        "iterations": 51825
+      }
+    },
+    "report": "tests/docs/reports/b_report_latest.md"
+  },
+  "summary_report": "tests/docs/reports/all_report_latest.md"
+}

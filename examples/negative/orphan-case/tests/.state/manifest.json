@@ -1,0 +1,56 @@
+{
+  "schema_version": "1.0",
+  "skill_version": "0.1.0",
+  "create_status": "complete",
+  "completed_stage": 4,
+  "created_at": "2026-11-24T01:24:41",
+  "updated_at": "2026-11-24T01:24:41",
+  "stack": {
+    "language": "python",
+    "unit_runner": "python3 -B -m pytest tests/unit -o python_files=\"u_*_test.py\" -o cache_dir=tests/tmp/.pytest_cache -vv --durations=0",
+    "benchmark_runner": "python3 -B -m pytest tests/benchmark -o python_files=\"b_*_bench.py\" -o cache_dir=tests/tmp/.pytest_cache -q -s"
+  },
+  "backup_ref": null,
+  "sources": {
+    "README.md": {
+      "sha256": "86ec5665fa3f5960a199f16de25a65ce26f2be04d9b20728efe9580b18e510aa"
+    },
+    "pyproject.toml": {
+      "sha256": "a984cce6c4f36fd5cf68d79f35e40a22d61f88a05a4a463d8e45b9e682fcdc1f"
+    },
+    "textkit/__init__.py": {
+      "sha256": "dfe4f80ba0e66f42e140ef8e8cb14d3fe34571af44fdaba2a3a951546de02963"
+    },
+    "textkit/wordcount.py": {
+      "sha256": "c627eb7699f5b64256575fe9083bf7edcedd4ab72cf6c2ff4632a6104ad2e6c2"
+    },
+    "textkit/slugify.py": {
+      "sha256": "784851193007111bee82f37041777f4d055a8bc670fa36a5f041348d2687f822"
+    }
+  },
+  "modules": {
+    "wordcount": {
+      "draft": "tests/docs/drafts/wordcount_draft.md",
+      "plan": "tests/docs/plans/wordcount_plan.md",
+      "unit_cases_doc": "tests/docs/cases/u_wordcount_cases.md",
+      "benchmark_cases_doc": "tests/docs/cases/b_wordcount_cases.md",
+      "fixtures": "tests/fixtures/wordcount_fixtures.json",
+      "unit_code": {
+        "path": "tests/unit/u_wordcount_test.py",
+        "sha256": "29df0f6459c15e3623a9fe3b6b6d3b352345fe09d9c59e47625b9e4afcaab29d",
+        "case_ids": [
+          "UT-wordcount-001",
+          "UT-wordcount-002",
+          "UT-wordcount-003"
+        ]
+      },
+      "benchmark_code": {
+        "path": "tests/benchmark/b_wordcount_bench.py",
+        "sha256": "10f068edad4dcc23379408a8c3ef7358c228915509be0c703ac2a0aed04826c9",
+        "case_ids": [
+          "BM-wordcount-001"
+        ]
+      }
+    }
+  }
+}
