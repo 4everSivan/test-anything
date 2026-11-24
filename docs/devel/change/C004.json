@@ -50,8 +50,8 @@
     }
   },
   "verification": {
-    "result": null,
-    "run_id": "",
+    "result": true,
+    "run_id": "local-20261124-02",
     "user_quote": "",
     "signoff": "",
     "checks": [
@@ -59,29 +59,29 @@
         "item": "自动化测试",
         "true_if": "新增回归测试断言 CI 的检出步骤声明 fetch-depth: 0；在 git clone --depth 1 的浅克隆中按 CI 原文执行三个步骤全部通过",
         "false_if": "浅克隆中任一步骤失败，或缺少针对检出深度的回归测试",
-        "evidence": "",
-        "result": null
+        "evidence": "新增 test_ci_checks_out_full_history_for_the_commit_ancestry_check，断言 CI 的检出步骤声明 fetch-depth: 0；在仓库临时副本中删去该行后，此测试以 AssertionError（Regex didn't match）失败，未变异时通过。浅克隆对照实验：git clone --depth 1 检出修复提交 d0f76c1（仅 1 个提交），按 CI 原文执行契约测试仍因 COMMIT_NOT_ANCESTOR 失败（test_adflow_governance_gates_clean，FAILED (failures=1)），说明决定性因素就是检出深度；执行 git fetch --unshallow 补全历史（等价于 fetch-depth: 0）后，按 CI 原文执行三个步骤全部通过：test_skill_contract 10 项 OK、test_artifact_gate 16 项 OK、python-sample 与 go-sample 的 --scope all 均 Exit 0、test_ta_verify 16 项 OK。",
+        "result": true
       },
       {
         "item": "行为实测",
         "true_if": "修复前的收口提交在远端 CI 为 failure，修复提交推送后同一工作流重新运行为 success",
         "false_if": "推送后 CI 仍失败，或没有重新运行",
-        "evidence": "",
-        "result": null
+        "evidence": "修复前：收口提交 9c2c076 的远端运行 45304057433 在契约测试步骤 failure（日志为 COMMIT_NOT_ANCESTOR 与 GATE_CLAIM_CONTRADICTION）。修复后：推送修复提交 d0f76c1 触发同一工作流的运行 45306277996（https://github.com/4everSivan/test-anything/actions/runs/45306277996），结论 success，三个步骤全部 success；日志显示检出步骤按 fetch-depth: 0 执行，契约测试 10 项与 16 项 OK、ta-verify 回归 16 项 OK（共 42 项），全文没有出现 COMMIT_NOT_ANCESTOR。",
+        "result": true
       },
       {
         "item": "反向影响排查",
         "true_if": "本地完整历史下全量单测与 scripts/adflow-verify --json 仍为 Exit 0，黄金样例与负向样例步骤的结果不变",
         "false_if": "本地门禁出现违规，或 CI 其他步骤的结果发生改变",
-        "evidence": "",
-        "result": null
+        "evidence": "本地完整历史下 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v 运行 42 项全部 OK（修复前 41 项，新增 1 项），scripts/adflow-verify --json Exit 0（errors 0、warnings 0、advisories 0）。改动只涉及 CI 的检出步骤配置，ta-verify、黄金样例与负向样例未被触碰；浅克隆补全历史后这两步的本地结果与此前的远端运行 45303166816 一致，均为通过。",
+        "result": true
       }
     ]
   },
   "rejections": [],
   "sync": {
-    "design_pinned": false,
-    "changelog": false,
+    "design_pinned": true,
+    "changelog": true,
     "commit": "",
     "tag": ""
   },
