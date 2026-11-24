@@ -82,7 +82,7 @@
       "title": "增量 create 支持 --module 与覆盖率缺口转补测",
       "version": "v0.1.0",
       "milestone": "M1-test-anything-v0.1",
-      "status": "pending",
+      "status": "in_progress",
       "branch": "feat/T04-incremental-create-module",
       "depends_on": [
         "T03"

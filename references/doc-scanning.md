@@ -40,6 +40,15 @@ Record discrepancies explicitly rather than inventing behavior:
 - `conflict`: Documentation and source code disagree on input/output contracts or error types.
 - `missing_data`: Requires external fixtures or sample payloads not yet available.
 
+### 4.1 Coverage gaps on incremental create (`COV-GAP`)
+
+On an incremental `create` where `tests/.state/last_run.json` records `unit.coverage.status: "ok"`, turn the uncovered units into supplemental work instead of guessing:
+
+1. **Register with provenance.** For each `uncovered[]` entry, add a `COV-GAP-<module>-<NN>` row to the module draft's `## 4. 待确认与实现差异 (Gaps)` section and cite the source run as `来源: coverage(<run_id>)`, using the `run_id` from the same `last_run.json`. A Python gap is an uncovered line or branch; a Go gap is an uncovered statement block. Never drop a gap silently.
+2. **Only FP-backed gaps become tests.** A gap that maps to an existing `FP-<module>-<NN>` continues through Stages 2–4 as new cases, with each case card noting `来源: coverage(<run_id>)`. A gap that maps to no functional point is only registered as a gap and gets a note that the documentation first needs the capability; never generate a test without a functional-point basis just to raise coverage.
+3. **Respect the cap.** `unit.coverage.uncovered[]` already lists at most 50 entries per module with the rest counted in `uncovered_omitted`. When the cap truncated a module, register one aggregate `COV-GAP` row stating how many further gaps were not individually listed; the total is kept, not lost.
+4. **Keep the results honest.** Supplemental tests are kept with their real run results. A case that does not raise coverage stays, and no assertion is weakened; Stage 4 completion still requires the `ta-verify --scope create` gate to exit `0`.
+
 ## 5. `tests/docs/drafts/<module>_draft.md` Format Contract
 
 Render each module draft using [templates/docs/draft.md.tpl](../templates/docs/draft.md.tpl) with the single-line blockquote header (`> **module**: <module> ｜ **type**: draft ｜ **updated_at**: YYYY-MM-DD ｜ **status**: active`) and exactly four H2 sections:

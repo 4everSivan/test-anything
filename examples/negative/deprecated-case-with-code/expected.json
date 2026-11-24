@@ -1,0 +1,8 @@
+{
+  "description": "deprecated 用例仍绑定着测试函数：UT-wordcount-002 已标记 deprecated，但对应测试函数与 @case 锚点仍在。",
+  "scope": "create",
+  "exit_code": 4,
+  "codes": [
+    "CASE_DEPRECATED_WITH_CODE"
+  ]
+}

@@ -46,3 +46,7 @@ jobs:
       - name: Coverage parsing, coverage checks and coverage report contract
         run: |
           python3 -m unittest discover -s tests -p "test_coverage.py" -v
+
+      - name: Module-scoped create, deprecated cases and COV-GAP contract
+        run: |
+          python3 -m unittest discover -s tests -p "test_module_scope.py" -v

@@ -12,5 +12,6 @@
   },
   "backup_ref": null,
   "sources": {},
+  "module_scope": [],
   "modules": {}
 }

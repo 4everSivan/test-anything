@@ -58,6 +58,7 @@ Every Markdown document under `tests/docs/` starts with an H1 heading followed i
    5. Atomically move `<target_root>/tests` to `<target_root>/_test_anything_backup/original_tests/tests`.
    6. Recreate the clean `<target_root>/tests/` hierarchy and record `"backup_ref": "_test_anything_backup/original_tests/tests"` in `manifest.json`. Do not alter Git's index.
 4. **Create progress tracking:** At the end of Stage 0, write `tests/.state/manifest.json` with `create_status: "in_progress"` (fresh and legacy modes start with `completed_stage: 0`; incremental mode resets it to `0` and keeps existing `modules` records until Stage 4 replaces them; resume mode keeps the recorded value). After a stage completes for every module in scope, set `completed_stage` to that stage number and refresh `updated_at`. Stage 4 first writes the full module records with `create_status: "in_progress"` and `completed_stage: 3`, and sets `create_status: "complete"` and `completed_stage: 4` only after the artifact gate in [artifact-verification](artifact-verification.md) Section 5 exits `0`. A stage stopped by a blocker or interruption leaves `completed_stage` unchanged, so the next `create` resumes at that stage.
+   - **Module-scoped create:** `create --module <module>` (repeatable) runs Stages 1–4 for those modules only. Write the covered module names into `module_scope`, update `modules` entries, the draft/plan/cases/code files, and the `sources` hashes only for modules in scope, and advance `completed_stage` only once every in-scope module finished the stage. Other modules' records and files stay untouched. A module name that appears in none of the manifest, the project documentation, or the source tree aborts the run.
 5. **Incremental modification snapshots:** On incremental `create` (and on resume when the manifest already has code records), if a managed file in `tests/unit/` or `tests/benchmark/` has a disk SHA-256 different from `manifest.json` (indicating manual user edits), copy it to `_test_anything_backup/snapshots/<run_id>/` before updating, and preserve user-added assertions where compatible.
 6. **Read-only backup invariant:** Never delete, modify, or overwrite any file inside `/_test_anything_backup/`.
 
@@ -75,6 +76,9 @@ Use [templates/state/manifest.json.tpl](../templates/state/manifest.json.tpl). R
 - `backup_ref`: path to `_test_anything_backup/original_tests/tests` or `null`
 - `sources`: map of relative document/source paths to `{ "sha256": "<hex>" }`
 - `modules`: map of `<module>` to `{ "draft", "plan", "unit_cases_doc", "benchmark_cases_doc", "fixtures", "unit_code": { "path", "sha256", "case_ids" }, "benchmark_code": { "path", "sha256", "case_ids" } }`
+- `module_scope` (optional): array of module names covered by the most recent `create`; an empty array or an absent field means the full project. Under `create --module`, only these modules' entries and `sources` hashes are updated and `completed_stage` advances only for them.
+
+`case_ids` lists only the cases that need generated test code. Cases marked `todo`, `unimplemented`, or `deprecated` keep their specification in `cases/` but generate no code, so they are excluded from `case_ids`. Case IDs are append-only: never renumber, reuse, or reorder existing IDs, and mark a case `deprecated` instead of deleting it when its capability disappears from the source.
 
 ### 4.2 `tests/.state/last_run.json`
 

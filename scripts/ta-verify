@@ -130,6 +130,9 @@ CHECKS = {
     "CODE_FEATURE_ANCHOR_UNKNOWN": ("ERROR", "@feature 锚点指向该模块未登记的功能点",
                                     "将 @feature 改为该模块草稿或计划矩阵中已登记的功能点 ID",
                                     CG, "2. Internal Test Code Format Contract"),
+    "CASE_DEPRECATED_WITH_CODE": ("ERROR", "deprecated 用例仍绑定着测试函数",
+                                 "删除该 @case 绑定的测试函数（deprecated 用例不再生成代码），或把用例状态改回 active",
+                                 CP, "1.2 Per-Module Test Plan (`tests/docs/plans/<module>_plan.md`)"),
     "CASE_WITHOUT_TEST_CODE": ("ERROR", "孤立用例：cases 规格中的用例没有任何测试函数绑定",
                                "为该用例生成带 @case 锚点的测试函数；能力未实现时在规格中标记 todo",
                                CG, "2. Internal Test Code Format Contract"),
@@ -252,7 +255,7 @@ TESTS_TOPDIRS = ("docs", "unit", "benchmark", ".state")
 TESTS_OPTIONAL_DIRS = ("fixtures", "tmp")
 DOCS_SUBDIRS = ("drafts", "plans", "cases", "reports")
 # 能力未实现时规格标记 todo / unimplemented，此类用例不生成测试代码。
-EXEMPT_STATUSES = ("todo", "unimplemented")
+EXEMPT_STATUSES = ("todo", "unimplemented", "deprecated")
 UNIT_STATUSES = ("passed", "failed", "error", "not_run")
 BENCH_STATUSES = ("completed", "failed", "error", "not_run")
 UNIT_FIELDS = ("status", "command", "exit_code", "total", "passed", "failed", "skipped",
@@ -789,6 +792,8 @@ def check_code_file(ctx, art, rel, track, module, bound):
                 ctx.add("CODE_CASE_ANCHOR_DUPLICATE", rel, "函数 %s 与函数 %s 重复绑定用例 %s" % (name, bound[case_id], case_id), line)
             else:
                 bound[case_id] = name
+                if "deprecated" in target.status.split():
+                    ctx.add("CASE_DEPRECATED_WITH_CODE", rel, "函数 %s 仍绑定着已标记 deprecated 的用例 %s；该用例不应再生成测试代码" % (name, case_id), line)
         feature = anchors.get("feature")
         declared = art.declared_fps.get(module)
         if feature is not None and declared and feature not in declared:
@@ -935,6 +940,14 @@ def check_manifest(ctx, art):
     if not isinstance(modules, dict):
         invalid("modules", "以模块名为键的对象")
         return
+    if "module_scope" in data:
+        scope = data["module_scope"]
+        if not (isinstance(scope, list) and all(isinstance(item, str) and re.fullmatch(MODULE, item) for item in scope)):
+            invalid("module_scope", "模块名（小写 snake_case）数组")
+        else:
+            unknown = [item for item in scope if item not in modules]
+            if unknown:
+                invalid("module_scope", "modules 中已登记的模块名；未知模块 %s" % ", ".join(sorted(unknown)))
     for module in sorted(modules):
         check_manifest_module(ctx, art, module, modules[module])
     on_disk = {module for _, module in art.cases}
