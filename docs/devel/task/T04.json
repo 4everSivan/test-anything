@@ -68,7 +68,7 @@
       {
         "item": "前置条件",
         "true_if": "开工时 C001 已由 Bella 签署并处于 closed，precheck 命令 Exit 0",
-        "false_if": "C001 未 closed 即开工，或由他人代签",
+        "false_if": "C001 未 closed 即开工，或 C001 的代签未经 Bella 亲口同意（经 Bella 亲口同意的代签视同 Bella 签署）",
         "evidence": "",
         "result": null
       },

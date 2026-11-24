@@ -18,7 +18,7 @@
     "description": "嗅探 run 是否仍产出按批次命名的历史报告、全量报告是否仍保留批次归档索引",
     "command": "python3 -I -c \"import pathlib as p, sys; w = p.Path('workflow.yaml').read_text(encoding='utf-8'); r = p.Path('references/runner-and-reporting.md').read_text(encoding='utf-8'); a = p.Path('templates/docs/all_report.md.tpl').read_text(encoding='utf-8'); sys.exit(0 if '_report_<run_id>' not in w and '批次归档索引' not in a and 'Never write per-run copies' in r else 1)\"",
     "expected": "Exit 1 表示仍会堆积历史报告需修复；Exit 0 表示已改为仅保留最近一次结果",
-    "is_completed": false,
+    "is_completed": true,
     "evidence": "修复前执行预检命令 Exit 1（workflow.yaml 仍写 *_report_<run_id>.md，all_report 模板仍含批次归档索引）；修复后复测同一命令 Exit 0。"
   },
   "callback": {
