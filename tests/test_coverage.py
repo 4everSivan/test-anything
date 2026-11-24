@@ -361,7 +361,8 @@ class TestCoverageWorkflowContract(unittest.TestCase):
         workflow = read(ROOT / "workflow.yaml")
         block = workflow.split('id: "INV_COVERAGE_HONEST_AND_PASSIVE"', 1)[1].split("- id:", 1)[0]
         self.assertIn('severity: "FATAL"', block)
-        for phrase in ("same unit test run", "never collect it for benchmarks", "Never install a coverage tool",
+        for phrase in ("same unit test run", "coverage is never collected for benchmarks",
+                       "re-run the plain unit command once", "Never install a coverage tool",
                        "never 0", "no threshold", "never changes a track status"):
             self.assertIn(phrase, block)
 
@@ -370,7 +371,8 @@ class TestCoverageWorkflowContract(unittest.TestCase):
         stage2 = workflow.split('id: "RUN_STAGE_2_EXECUTE"', 1)[1].split('id: "RUN_STAGE_3', 1)[0]
         stage3 = workflow.split('id: "RUN_STAGE_3_REPORT_AND_STATE"', 1)[1]
         self.assertIn("inside that same unit test run", stage2)
-        self.assertIn("Never execute the unit tests a second time for coverage", stage2)
+        self.assertIn("Coverage itself never triggers a second test run", stage2)
+        self.assertIn("re-run the plain unit command once", stage2)
         self.assertIn("never install it", stage2)
         self.assertIn("scripts/ta-verify --coverage <raw_file>", stage3)
         self.assertIn("verbatim into 'unit.coverage'", stage3)
@@ -405,8 +407,8 @@ class TestCoverageWorkflowContract(unittest.TestCase):
     def test_skill_states_the_coverage_principle(self):
         skill = read(ROOT / "SKILL.md")
         self.assertIn("8. **Coverage is reported, never gamed.**", skill)
-        for phrase in ("never in a second run", "Never install a coverage tool", "never `0`",
-                       "no threshold"):
+        for phrase in ("never triggers a second test run", "re-run the plain unit command once",
+                       "Never install a coverage tool", "never `0`", "no threshold"):
             self.assertIn(phrase, skill)
 
 

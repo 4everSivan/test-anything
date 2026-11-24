@@ -153,5 +153,127 @@ class TestDeprecatedBehavior(unittest.TestCase):
         self.assertIn("MANIFEST_FIELD_INVALID", codes_by_severity(shape)["ERROR"])
 
 
+class TestScopeSemantics(unittest.TestCase):
+    """C005: module_scope has one lifecycle rule set; COV-GAP registration is scoped, deduplicated and source-fresh."""
+
+    OWNERS = [
+        "workflow.yaml",
+        "references/state-and-backup.md",
+        "docs/devel/design/01-目录结构与状态管理.md",
+        "docs/devel/design/02-测试用例生成流水线.md",
+    ]
+
+    MODULE_SCOPE_RULES = {
+        "stage-0 write timing": (
+            "as soon as Stage 0 resolves the route, write 'module_scope'",
+            "The same write records `module_scope` as the deduplicated `--module` list",
+            "Stage 0 路由确定后即写入 `--module` 去重后的列表",
+            "`module_scope` 在 Stage 0 路由确定后即写入",
+        ),
+        "resume keeps the recorded scope": (
+            "A resume always keeps the 'module_scope' recorded at interruption",
+            "A resume always keeps the `module_scope` recorded at interruption",
+            "续跑一律沿用中断时记录的 `module_scope`",
+            "续跑（含裸调续跑）一律沿用中断时记录的值",
+        ),
+        "full create resets to []": (
+            "A full create without '--module' leaves 'module_scope' as [] on completion",
+            "a full create leaves `[]` on completion",
+            "全量 `create` 完成后仍为 `[]`",
+            "全量 `create` 完成后仍为 `[]`",
+        ),
+        "bare incremental writes []": (
+            "a bare incremental create also writes []",
+            "a bare incremental create also writes `[]`",
+            "裸调增量写 `[]`",
+            "裸调增量写 `[]`",
+        ),
+        "fresh and legacy reject --module": (
+            "Fresh and legacy modes reject '--module'",
+            "reject `create --module`",
+            "fresh 与存量迁移（legacy）模式下禁用",
+            "fresh 与存量迁移（legacy）模式下禁用",
+        ),
+        "stage-4 partial replace": (
+            "Stage 4 replaces only the 'modules' entries of modules in scope",
+            "Stage 4 replaces only the in-scope `modules` entries",
+            "Stage 4 只替换在范围模块的 `modules` 条目",
+            "Stage 4 只替换在范围模块的 `modules` 条目",
+        ),
+    }
+
+    COV_GAP_RULES = {
+        "module scope limits registration": (
+            "only for modules in 'module_scope'",
+            "register only gaps whose `uncovered[].module` is in the manifest's `module_scope`",
+            "受限 `create` 只登记 `module_scope` 内模块的缺口",
+        ),
+        "same run_id replaces without new numbers": (
+            "re-registering gaps of the same run_id replaces the earlier rows without allocating new numbers",
+            "Re-registering gaps from the same `run_id` replaces the earlier rows in place and allocates no new numbers",
+            "同一 `run_id` 的缺口重复登记时以新记录替换旧记录、不追加新编号",
+        ),
+        "stale sources register nothing": (
+            "register only when 'last_run' matches the current sources by the manifest source hashes",
+            "Register gaps only when the current source files still match the manifest's recorded source hashes",
+            "仅当当前源码与 manifest 记录的源文件哈希一致",
+        ),
+    }
+
+    def test_every_owner_states_all_six_module_scope_rules(self):
+        texts = {rel: read(rel) for rel in self.OWNERS}
+        for rule, phrases in self.MODULE_SCOPE_RULES.items():
+            for rel, phrase in zip(self.OWNERS, phrases):
+                self.assertIn(phrase, texts[rel], "%s does not state the %s rule" % (rel, rule))
+
+    def test_cov_gap_constraints_are_stated_where_they_apply(self):
+        owners = ["workflow.yaml", "references/doc-scanning.md",
+                  "docs/devel/design/02-测试用例生成流水线.md"]
+        texts = {rel: read(rel) for rel in owners}
+        for rule, phrases in self.COV_GAP_RULES.items():
+            for rel, phrase in zip(owners, phrases):
+                self.assertIn(phrase, texts[rel], "%s does not state the %s rule" % (rel, rule))
+
+    def test_invariants_match_the_corrected_wording(self):
+        wf = read("workflow.yaml")
+        pipeline = wf.split('id: "INV_DRAFT_FIRST_PIPELINE"', 1)[1].split('- id:', 1)[0]
+        self.assertIn("never splits a run into separate u_/b_ tracks", pipeline)
+        self.assertIn("narrows only the module set, never the set of tracks", pipeline)
+        self.assertNotIn("always executes the full scope", pipeline)
+
+        coverage = wf.split('id: "INV_COVERAGE_HONEST_AND_PASSIVE"', 1)[1].split('- id:', 1)[0]
+        self.assertIn("coverage itself never triggers a second test run", coverage)
+        self.assertIn("re-run the plain unit command once", coverage)
+        design03 = read("docs/devel/design/03-测试执行与报告引擎.md")
+        self.assertIn("覆盖率本身永不触发第二次测试运行", design03)
+        self.assertIn("允许以普通命令重跑一次", design03)
+
+    def test_overview_route_and_evolution_follow_delivery_order(self):
+        overview = read("docs/devel/design/00-系统总体设计.md")
+        self.assertIn("`$test-anything create --module <module>`", overview)
+        self.assertIn("| [T04](../task/T04.json) |", overview)
+        table = overview.split("### 4.4 规则演进", 1)[1]
+        self.assertLess(table.index("| [T02](../task/T02.json) |"),
+                        table.index("| [C003](../change/C003.json) |"))
+        for rel in ("docs/devel/design/01-目录结构与状态管理.md",
+                    "docs/devel/design/02-测试用例生成流水线.md"):
+            self.assertNotIn("待后续 T 卡实现", read(rel), rel)
+
+    def test_negative_sample_plan_and_cases_agree(self):
+        plan = read(NEGATIVE / "tests/docs/plans/wordcount_plan.md")
+        cases = read(NEGATIVE / "tests/docs/cases/u_wordcount_cases.md")
+        plan_row = next(line for line in plan.splitlines() if "UT-wordcount-002" in line)
+        case_row = next(line for line in cases.splitlines()
+                        if line.startswith("|") and "`UT-wordcount-002`" in line)
+        for row, source in ((plan_row, "plan"), (case_row, "cases")):
+            self.assertIn("`deprecated`", row, "%s still marks UT-wordcount-002 active" % source)
+        self.assertIn("不生成测试代码", plan_row)
+
+        expected = json.loads(read(NEGATIVE / "expected.json"))
+        proc = run_verify(NEGATIVE, "--scope", expected["scope"], "--json")
+        self.assertEqual(proc.returncode, 4)
+        self.assertEqual(codes_by_severity(proc)["ERROR"], set(expected["codes"]))
+
+
 if __name__ == "__main__":
     unittest.main()

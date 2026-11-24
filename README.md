@@ -34,6 +34,7 @@
 $test-anything                        # 默认入口：初始化 tests/ 目录（含存量备份）并默认执行 create 全量生成
 $test-anything help                   # 帮助入口（兼容 --help / -h）：只读输出命令语法、子命令说明与目录速查，不写任何文件
 $test-anything create                 # 生成入口：扫描文档功能点与源码契约，按流水线全量生成/增量更新 unit 与 benchmark 用例
+$test-anything create --module <m>    # 限域生成：仅对指定模块（可重复、去重）执行 Stage 1–4，其余模块零改动
 $test-anything run                    # 执行入口（默认全部）：依次执行 unittest 与 benchmark，输出全量与分项报告
 $test-anything run unittest           # 执行子命令：仅执行 tests/unit/ 下的单元测试，更新 u_ 测试报告
 $test-anything run benchmark          # 执行子命令：仅执行 tests/benchmark/ 下的基准测试，更新 b_ 测试报告
@@ -49,8 +50,8 @@ $test-anything run benchmark          # 执行子命令：仅执行 tests/benchm
 | `$test-anything`（裸调） | 上次 `create` 中断（`manifest.json` 记录 `create_status: in_progress`） | 续跑：不备份、不迁移，从 `completed_stage + 1` 继续 `create` |
 | `$test-anything`（裸调） | 已完成 `create`（`manifest.json` 记录 `create_status: complete`） | 默认执行 `create` 的增量扫描与更新流程 |
 | `$test-anything`（裸调） | `manifest.json` 损坏（无法解析或 `schema_version` 无效） | 停止并报告，不迁移任何文件 |
-| `$test-anything create` | 任意状态 | 同裸调行为；**不设 `unittest \| benchmark` 子参数**，始终全量覆盖单元测试与基准测试的生成/更新 |
-| `$test-anything create --module <module>` | 已完成过 `create`，或需要限定范围 | `--module` 可重复；只对指定模块执行 Stage 1–4，其余模块的 drafts/plans/cases/代码与 manifest 条目保持不变，模块名全程写入 `module_scope`；未知模块报错中止 |
+| `$test-anything create` | 任意状态 | 同裸调行为；**不设 `unittest \| benchmark` 子参数**，每次同时覆盖单元测试与基准测试的生成/更新（不按 `u_`/`b_` 拆分轨道） |
+| `$test-anything create --module <module>` | 已存在受管 `manifest.json`（续跑或增量） | `--module` 可重复、自动去重；只对指定模块执行 Stage 1–4，Stage 0 即把去重后的模块名写入 `module_scope`，其余模块的 drafts/plans/cases/代码与 manifest 条目保持不变；续跑沿用中断时记录的 `module_scope`，全量 `create` 完成后重置为 `[]`；fresh 与存量迁移（legacy）模式下禁用；未知模块报错中止 |
 | `$test-anything run` | 已完成 `create` | 执行 `tests/unit/` + `tests/benchmark/` 全部测试，在 `tests/docs/reports/` 生成 `u_`、`b_` 及全量汇总报告 |
 | `$test-anything run unittest` | 已完成 `create` | 仅执行 `tests/unit/`，生成/更新 `u_` 单元测试报告与 `.state/last_run.json` |
 | `$test-anything run benchmark` | 已完成 `create` | 仅执行 `tests/benchmark/`，生成/更新 `b_` 性能基准报告与 `.state/last_run.json` |
@@ -191,11 +192,11 @@ flowchart TD
 2. 仅重新起草和更新受变更影响的模块（`drafts` → `plans` → `cases` → `unit`/`benchmark`），未变更模块保持原文件与时间戳；
 3. 若检测到用户手动修改了 `tests/unit/` 或 `tests/benchmark/` 下的某个受管文件（文件当前哈希与 `manifest.json` 不一致），先将该文件快照备份至 `_test_anything_backup/snapshots/<run_id>/`，并在合并更新时保留用户新增断言或提示冲突。
 4. 用例编号只追加、不重排、不复用；源码已删除对应能力的用例在 `cases/` 中标记 `deprecated` 并停止生成代码，不物理删除。
-5. 若 `last_run.json` 的 `unit.coverage.status` 为 `ok`，把 `uncovered[]` 逐条登记为草稿第 4 节的 `COV-GAP`（注明 `来源: coverage(<run_id>)`）：仅能映射到既有 `FP-` 的缺口进入 Stage 2–4 补测，其余只登记并提示补文档；单模块超过 50 条的部分以一条汇总 `COV-GAP` 记明数量。
+5. 若 `last_run.json` 的 `unit.coverage.status` 为 `ok`，把 `uncovered[]` 逐条登记为草稿第 4 节的 `COV-GAP`（注明 `来源: coverage(<run_id>)`）：受限 `create` 只登记 `module_scope` 内模块的缺口；同一 `run_id` 重复登记时以新记录替换旧记录、不追加新编号，不同 `run_id` 照常追加编号；仅当当前源码与 manifest 记录的源文件哈希一致时才登记，不一致则整批不登记并在草稿注明原因。仅能映射到既有 `FP-` 的缺口进入 Stage 2–4 补测，其余只登记并提示补文档；单模块超过 50 条的部分以一条汇总 `COV-GAP` 记明数量。
 
 #### 中断续跑规则
 
-每次 `create` 在阶段 0 结束时将 `manifest.json` 置为 `create_status: in_progress`，此后每个阶段对全部在范围模块完成后把 `completed_stage` 更新为该阶段号，阶段 4 完成并通过只读产物校验门禁（`scripts/ta-verify --scope create` Exit 0）后置为 `create_status: complete`。受阻或中断的阶段不推进 `completed_stage`；再次执行 `$test-anything` 或 `$test-anything create` 时识别为续跑，不备份、不迁移，从 `completed_stage + 1` 继续，已完成阶段的产物重新读取校验而非重写。续跑期间 `run` 门禁报错并提示先完成 `create`。
+每次 `create` 在阶段 0 结束时将 `manifest.json` 置为 `create_status: in_progress`，此后每个阶段对全部在范围模块完成后把 `completed_stage` 更新为该阶段号，阶段 4 完成并通过只读产物校验门禁（`scripts/ta-verify --scope create` Exit 0）后置为 `create_status: complete`。受阻或中断的阶段不推进 `completed_stage`；再次执行 `$test-anything` 或 `$test-anything create` 时识别为续跑，不备份、不迁移，从 `completed_stage + 1` 继续，已完成阶段的产物重新读取校验而非重写；续跑一律沿用中断时记录的 `module_scope`，即使未带 `--module` 也不重新推断。续跑期间 `run` 门禁报错并提示先完成 `create`。
 
 ---
 
@@ -243,7 +244,7 @@ flowchart TD
 6. **产物校验只报告、不改判**：
    - 报告与 `last_run.json` 写完后，运行技能包内的只读校验器 `scripts/ta-verify --scope run`，把它的发现原样写入运行小结。它只核对结构与追溯一致性，**不因此改变任何 `passed` / `failed` / `error` 状态、计数、退出码或性能指标**，也不弱化上一条的诚实报告约束。校验 Exit 4 时如实报告违规，并通过 `create` 修复生成产物，而不是修改报告数字。
 7. **覆盖率只报告、不设门槛**：
-   - `run` 与 `run unittest` 在**同一次单测运行**中采集覆盖率（Python 用 `coverage run --branch`，Go 用 `-coverprofile`），不为覆盖率再跑一遍；基准测试不采集，Python 与 Go 之外的语言记 `not_supported`。
+   - `run` 与 `run unittest` 在**同一次单测运行**中采集覆盖率（Python 用 `coverage run --branch`，Go 用 `-coverprofile`）；覆盖率本身永不触发第二次测试运行，唯一例外是覆盖率包裹本身导致运行器崩溃、拿不到测试结论时，允许以普通命令重跑一次并在 `reason` 写明；基准测试不采集，Python 与 Go 之外的语言记 `not_supported`。
    - 原始文件落 `tests/tmp/coverage/`，由技能包内的 `scripts/ta-verify --coverage` 解析后原样写入 `last_run.json.unit.coverage`，并渲染到单元测试报告第 1 节的覆盖率列、第 4 节“未覆盖符号”与全量报告的覆盖率列。
    - 不自动安装任何覆盖率工具：工具缺失，或采集、解析失败时照常执行单测，覆盖率写 `N/A` 并说明原因，绝不填 0。
    - 覆盖率没有阈值；采集或解析失败**不改变**单测轨的 `passed` / `failed` / `error` 判定与退出码，也不参与第 5 条的诚实报告判定。
@@ -721,7 +722,7 @@ JSON/YAML 数据夹具顶部固定保留 `_meta` 块，声明所属模块与引�
 }
 ```
 
-`module_scope` 为可选字段：记录最近一次 `create` 覆盖的模块名，空数组或缺省表示全量；`create --module` 时只更新在范围模块的条目与 `sources` 哈希，`completed_stage` 也只按在范围模块是否完成推进。`case_ids` 只列需要生成测试代码的用例，`todo`、`unimplemented` 与 `deprecated` 用例保留规格但不生成代码；用例编号只追加、不重排、不复用，源码已删除对应能力的用例标记 `deprecated` 而非物理删除。
+`module_scope` 为可选字段：记录最近一次 `create` 覆盖的模块名，空数组或缺省表示全量。Stage 0 路由确定后即写入去重后的 `--module` 列表，不带 `--module` 时写 `[]`；续跑（含裸调续跑）沿用中断时记录的值，不重新推断；全量 `create` 完成后仍为 `[]`；裸调增量写 `[]`，“只重算变更模块”属运行时行为；fresh 与存量迁移（legacy）模式下禁用 `--module`。`create --module` 时只更新在范围模块的条目与 `sources` 哈希，Stage 4 只替换在范围模块的 `modules` 条目、范围外条目逐字节保留，`completed_stage` 也只按在范围模块是否完成推进。`case_ids` 只列需要生成测试代码的用例，`todo`、`unimplemented` 与 `deprecated` 用例保留规格但不生成代码；用例编号只追加、不重排、不复用，源码已删除对应能力的用例标记 `deprecated` 而非物理删除。
 
 ### 8.2 `tests/.state/last_run.json`
 

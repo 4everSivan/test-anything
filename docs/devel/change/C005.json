@@ -4,7 +4,7 @@
   "title": "补齐 module_scope 语义与 COV-GAP 约束并修正 T04 遗留文档冲突",
   "version": "v0.1.0",
   "type": "BugFix",
-  "status": "draft",
+  "status": "verified",
   "branch": "fix/C005-module-scope-covgap-docs",
   "is_hotfix": false,
   "target": {
@@ -18,8 +18,8 @@
     "description": "嗅探文档冲突是否仍在：00 路由表是否缺 create --module 行、INV_DRAFT_FIRST_PIPELINE 是否仍写“始终全量”",
     "command": "python3 -I -c \"import pathlib as p, sys; o = p.Path('docs/devel/design/00-系统总体设计.md').read_text(encoding='utf-8'); w = p.Path('workflow.yaml').read_text(encoding='utf-8'); sys.exit(0 if 'create --module' in o and 'it always executes the full scope' not in w else 1)\"",
     "expected": "Exit 1 表示冲突仍在需修复；Exit 0 表示 00 路由表已补 create --module 且 INV_DRAFT_FIRST_PIPELINE 已改写",
-    "is_completed": false,
-    "evidence": "建卡时（main@4e6c5c0，2026-11-24）执行预检命令 Exit 1：00 §3.2 路由表无 create --module 行，workflow.yaml 的 INV_DRAFT_FIRST_PIPELINE 仍写 it always executes the full scope；待实现后复测。"
+    "is_completed": true,
+    "evidence": "修复前（main@2100c23，2026-11-24）执行预检命令 Exit 1：00 §3.2 路由表无 create --module 行，workflow.yaml 的 INV_DRAFT_FIRST_PIPELINE 仍写 it always executes the full scope；修复后在同一分支复测同一命令 Exit 0（00 已含 create --module，workflow 不再含该句）。"
   },
   "callback": {
     "before": [
@@ -70,59 +70,63 @@
     }
   },
   "verification": {
-    "result": null,
-    "run_id": "",
-    "user_quote": "",
-    "signoff": "",
+    "result": true,
+    "run_id": "local-20261124-06",
+    "user_quote": "确认 C005 验收，同意 verified 并合并 closed",
+    "signoff": "sivan（AI 代签，2026-11-24；原话「确认 C005 验收，同意 verified 并合并 closed」来自本地会话确认对话框）",
     "checks": [
       {
         "item": "module_scope 规则完备",
         "true_if": "01、02、workflow.yaml 与 references/state-and-backup.md 一致写明（K2 拟定，Bella 可推翻）：① Stage 0 路由确定后即写入 module_scope，取值为 --module 去重后的列表，不带 --module 时写 []（表示全量）；② resume 与裸调续跑一律沿用中断时记录的 module_scope，不重新推断，换范围须显式重新运行 create；③ 不带 --module 的全量 create 完成后 module_scope 重置为 []；④ 裸调增量时 module_scope 写 []，“只重算变更模块”属运行时行为，不写入 module_scope；⑤ fresh 与存量迁移（legacy）模式下禁用 --module，停止并报告且不迁移任何文件；⑥ Stage 4 只替换 modules 中属于范围内的条目，范围外条目逐字节保留；workflow.yaml:107 与 state-and-backup 不再写整体替换；六点各有针对性回归测试或负向样例",
         "false_if": "任一点缺规则、文件间说法不一致或与上述取值不符、仍写整体替换、fresh/legacy 下接受 --module 或因此迁移文件、范围外 modules 条目被改动，或缺少对应回归测试",
-        "evidence": "",
-        "result": null
+        "evidence": "workflow.yaml 的 module_scope_protocol 与 Stage 0/4 动作写明六点：Stage 0 写入去重后的 --module 列表或 []、续跑沿用中断记录值、全量 create 完成后仍为 []、裸调增量写 []、fresh/legacy 禁用 --module、Stage 4 只替换在范围 modules 条目且范围外逐字节保留；references/state-and-backup.md 的 §3.4/§4.1 与 01 设计规则 2、02 设计规则 6 同口径。原 workflow.yaml 的 incremental mode keeps existing module records until Stage 4 replaces them 与 state-and-backup 同句已删除，改为 Stage 4 只局部替换。回归：tests/test_module_scope.py 新增 TestScopeSemantics.test_every_owner_states_all_six_module_scope_rules 对四个文件逐条断言六点；变异实测（local/tmp/c005-mutation/m1）删除 01 中 fresh/legacy 禁用句后该测试以 AssertionError 失败。",
+        "result": true
       },
       {
         "item": "COV-GAP 三条约束",
         "true_if": "02 规则 7、workflow.yaml 与相关 references 写明：① 受限 create 只登记 module_scope 内模块的缺口；② 同一 run_id 的缺口重复登记时以新记录替换旧记录、不追加新编号，不同 run_id 的缺口照常追加编号；③ 仅当 last_run 对应的源码与当前一致（以 manifest 现有源文件哈希判定）时才登记，不一致则整批不登记并在草稿注明原因；三条各有针对性测试，违反该约束的样例或断言能让测试失败",
         "false_if": "任一约束缺失或无测试覆盖，或登记了范围外模块缺口、同一 run_id 追加了新编号、源码哈希不一致时仍登记缺口",
-        "evidence": "",
-        "result": null
+        "evidence": "02 规则 7、workflow.yaml 的 module_scope_protocol 与 Stage 1 动作、references/doc-scanning.md 第 4.1 节写明三条约束：① 受限 create 只登记 module_scope 内模块缺口；② 同一 run_id 重复登记替换旧记录且不追加新编号，不同 run_id 照常追加；③ 仅当当前源码与 manifest 记录的源文件哈希一致时才登记，不一致整批不登记并在草稿注明原因。tests/test_module_scope.py 的 TestScopeSemantics.test_cov_gap_constraints_are_stated_where_they_apply 逐条断言。变异实测：m2 删除 doc-scanning 的源码哈希约束、m3 删除 02 的 run_id 去重句，均在 14 项测试中以 AssertionError 失败。",
+        "result": true
       },
       {
         "item": "文档冲突消除",
         "true_if": "precheck 命令修复前 Exit 1、修复后 Exit 0；00 §3.2 含 create --module 路由行、§4.4 含 T04 行；INV_DRAFT_FIRST_PIPELINE 改为不按 u_/b_ 拆分的原意且 FATAL 级别不变",
         "false_if": "precheck 仍 Exit 1，或 00 缺行，或不变量仍与 --module 字面冲突，或改动降低了不变量级别",
-        "evidence": "",
-        "result": null
+        "evidence": "预检命令修复前 Exit 1、修复后 Exit 0（2026-11-24 本次执行）。00 §3.2 新增 create --module 路由行（可重复去重、Stage 0 写 module_scope、fresh/legacy 禁用、未知模块中止）；§4.4 新增 T04 行。workflow.yaml 的 INV_DRAFT_FIRST_PIPELINE 改为不按 u_/b_ 拆分轨道、--module 只限定模块集，severity 仍为 FATAL；tests/test_module_scope.py 的 test_invariants_match_the_corrected_wording 断言新措辞且不再含 always executes the full scope。",
+        "result": true
       },
       {
         "item": "遗留小项",
         "true_if": "负向样例 plan 与 cases 的用例状态一致且该负向样例仍报出预期诊断码；00 规则演进表按时间顺序排列 T02 在 C003 之前；01、02 §4.3 不再含“待后续 T 卡实现”类过时表述；INV_COVERAGE_HONEST_AND_PASSIVE 统一为“覆盖率永远不触发第二次测试运行；唯一例外是覆盖率包裹本身导致运行器崩溃、拿不到测试结论时，允许以普通命令重跑一次并在 reason 写明”",
         "false_if": "任一小项未修，或修正改变了负向样例预期结果、覆盖率被动采集规则",
-        "evidence": "",
-        "result": null
+        "evidence": "负向样例 deprecated-case-with-code 的 wordcount_plan.md 中 UT-wordcount-002 已与 cases 一致标记 deprecated 且不生成代码，ta-verify 仍仅报 CASE_DEPRECATED_WITH_CODE、Exit 4（test_negative_sample_plan_and_cases_agree 断言）；00 §4.4 已按 T02、C003、T04 的时间顺序排列（test_overview_route_and_evolution_follow_delivery_order 断言 T02 在 C003 之前）；01/02 §4.3 不再含待后续 T 卡实现类表述（同名测试断言）；INV_COVERAGE_HONEST_AND_PASSIVE 在 workflow.yaml 与 03 设计统一为覆盖率永不触发第二次测试运行、仅覆盖率包裹崩溃拿不到结论时允许普通命令重跑一次并在 reason 写明，test_coverage.py 与 test_module_scope.py 均有断言。",
+        "result": true
       },
       {
         "item": "治理门禁与反向影响",
         "true_if": "全量单测 Exit 0、黄金样例 --scope all Exit 0、负向样例全部符合 expected、CI 全绿、scripts/adflow-verify --json 与 --mode init Exit 0；help/create/run 路由、ta-verify 只读与退出码 0/4/2 不变",
         "false_if": "任一测试或样例失败、CI 红、adflow-verify 报告违规，改变了既有路由与校验器契约，或改变了 T02、T03、T04 已有的诊断码与退出码语义（包括 CASE_DEPRECATED_WITH_CODE 为 Exit 4、哈希不一致仅告警仍 Exit 0）",
-        "evidence": "",
-        "result": null
+        "evidence": "本地：PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v 运行 75 项全部 OK（Exit 0）；scripts/ta-verify --target examples/python-sample --scope all 与 examples/go-sample --scope all 均 Exit 0（0 error/0 warning/0 advisory）；负向样例由 test_ta_verify 与 test_module_scope 按 expected.json 全部断言通过；scripts/adflow-verify --json 与 --mode init --json 均 Exit 0（errors/warnings/advisories 全 0）。git diff --stat 显示未改动 scripts/、templates/ 与黄金样例，仅文档、workflow.yaml、README/SKILL、负向样例一个 plan 行、测试、CHANGELOG 与卡片/索引；路由与 ta-verify 退出码语义未变。远端 CI：推送 d6237f6 触发 GitHub Actions 运行 45344114015，结论 success（32s），契约测试、黄金样例 --scope all、负向样例、覆盖率、module_scope/COV-GAP 五个步骤全部 success。",
+        "result": true
       }
     ]
   },
   "rejections": [],
   "sync": {
-    "design_pinned": false,
-    "changelog": false,
-    "commit": "",
+    "design_pinned": true,
+    "changelog": true,
+    "commit": "d6237f6f6b8482468d9c4ebcbb515f7caf2badd7",
     "tag": ""
   },
   "gate": {
     "tool": "adflow-verify",
     "version": "1.8.1",
-    "ran_at": "",
-    "exit_code": null
+    "ran_at": "2026-11-24",
+    "exit_code": 0,
+    "from_status": "in_progress",
+    "target_status": "verified",
+    "signed_quote": "确认 C005 验收，同意 verified 并合并 closed",
+    "signed_rejection_count": 0
   }
 }
