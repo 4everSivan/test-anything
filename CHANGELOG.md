@@ -13,6 +13,8 @@
 
 ### Fixed
 
+- [C001](docs/devel/change/C001.json)：修复 `create` 中断后不可续跑（`manifest.json` 以 `create_status`/`completed_stage` 记录进度并支持续跑）、存量 `tests/` 未经用户确认即迁移，以及运行异常被误报为通过（报告新增 `error` 状态及确定性判定规则）。
+- [C002](docs/devel/change/C002.json)：`run` 仅原地覆盖 `*_latest.md`，不再按批次堆积 `*_report_<run_id>.md`；`all_report` 第 3 节改为本次运行信息，旧批次报告须经用户确认后才清理。
 - [C004](docs/devel/change/C004.json)：最小 CI 改为检出完整历史（`fetch-depth: 0`）。默认的浅克隆只有最新一个提交，使 `adflow-verify` 对已收口卡 `sync.commit` 的祖先校验误报 `COMMIT_NOT_ANCESTOR`，契约测试步骤因此失败。
 <!-- 只添加真实变更并关联真实 C/T 卡，不预登记示例卡或发布版本。
 真实卡片建立后的链接语法示例：

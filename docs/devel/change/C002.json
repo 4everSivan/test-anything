@@ -4,7 +4,7 @@
   "title": "测试报告仅保留最近一次运行结果，停止生成按批次堆积的历史报告",
   "version": "v0.1.0",
   "type": "BugFix",
-  "status": "in_progress",
+  "status": "verified",
   "branch": "fix/C002-latest-only-reports",
   "is_hotfix": false,
   "target": {
@@ -63,8 +63,8 @@
   "verification": {
     "result": true,
     "run_id": "local-20261101-22",
-    "user_quote": "",
-    "signoff": "",
+    "user_quote": "确认验收 C001、C002，同意 verified 并 closed",
+    "signoff": "Bella (K5 代签，2026-11-24，经 K9 转达 Bella 会话原话)",
     "checks": [
       {
         "item": "自动化测试",
@@ -92,14 +92,18 @@
   "rejections": [],
   "sync": {
     "design_pinned": true,
-    "changelog": false,
-    "commit": "",
+    "changelog": true,
+    "commit": "e678bfee3fdd9d6f9b9d9df9cc7a410db8fc8354",
     "tag": ""
   },
   "gate": {
     "tool": "adflow-verify",
-    "version": "1.6.0",
-    "ran_at": "",
-    "exit_code": null
+    "version": "1.8.1",
+    "ran_at": "2026-11-24",
+    "exit_code": 0,
+    "from_status": "in_progress",
+    "target_status": "verified",
+    "signed_quote": "确认验收 C001、C002，同意 verified 并 closed",
+    "signed_rejection_count": 0
   }
 }
