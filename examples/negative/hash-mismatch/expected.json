@@ -1,0 +1,8 @@
+{
+  "description": "警告样例：开发者手工修改了 u_wordcount_test.py（给 UT-wordcount-001 增补断言），manifest 中的 SHA-256 未随之更新。",
+  "scope": "create",
+  "exit_code": 0,
+  "codes": [
+    "MANIFEST_HASH_MISMATCH"
+  ]
+}

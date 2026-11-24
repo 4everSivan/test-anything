@@ -1,0 +1,108 @@
+{
+  "run_id": "20261124_102731",
+  "scope": "all",
+  "executed_at": "2026-11-24T10:27:31+08:00",
+  "unit": {
+    "status": "passed",
+    "command": "python3 -B -m coverage run --branch --source=textkit --data-file=tests/tmp/coverage/.coverage -m pytest tests/unit -o python_files=\"u_*_test.py\" -o cache_dir=tests/tmp/.pytest_cache -vv --durations=0",
+    "exit_code": 0,
+    "total": 6,
+    "passed": 6,
+    "failed": 0,
+    "skipped": 0,
+    "duration_ms": 642,
+    "report": "tests/docs/reports/u_report_latest.md",
+    "coverage": {
+      "status": "ok",
+      "reason": null,
+      "tool": "coverage.py",
+      "format": "coverage-json",
+      "line_pct": 76.92,
+      "branch_pct": 60.0,
+      "raw": [
+        "tests/tmp/coverage/coverage.json"
+      ],
+      "modules": {
+        "slugify": {
+          "line_pct": 100.0,
+          "branch_pct": 100.0,
+          "uncovered_total": 0
+        },
+        "textkit": {
+          "line_pct": 100.0,
+          "branch_pct": "N/A",
+          "uncovered_total": 0
+        },
+        "wordcount": {
+          "line_pct": 57.14,
+          "branch_pct": 33.33,
+          "uncovered_total": 6
+        }
+      },
+      "uncovered": [
+        {
+          "module": "wordcount",
+          "file": "textkit/wordcount.py",
+          "symbol": "count_words",
+          "kind": "branch",
+          "lines": "10->11"
+        },
+        {
+          "module": "wordcount",
+          "file": "textkit/wordcount.py",
+          "symbol": "count_words",
+          "kind": "line",
+          "lines": "11"
+        },
+        {
+          "module": "wordcount",
+          "file": "textkit/wordcount.py",
+          "symbol": "top_words",
+          "kind": "branch",
+          "lines": "20->22"
+        },
+        {
+          "module": "wordcount",
+          "file": "textkit/wordcount.py",
+          "symbol": "top_words",
+          "kind": "line",
+          "lines": "22-26"
+        },
+        {
+          "module": "wordcount",
+          "file": "textkit/wordcount.py",
+          "symbol": "top_words",
+          "kind": "branch",
+          "lines": "23->24"
+        },
+        {
+          "module": "wordcount",
+          "file": "textkit/wordcount.py",
+          "symbol": "top_words",
+          "kind": "branch",
+          "lines": "23->25"
+        }
+      ],
+      "uncovered_omitted": {}
+    }
+  },
+  "benchmark": {
+    "status": "completed",
+    "command": "python3 -B -m pytest tests/benchmark -o python_files=\"b_*_bench.py\" -o cache_dir=tests/tmp/.pytest_cache -q -s",
+    "exit_code": 0,
+    "total": 2,
+    "duration_ms": 512,
+    "metrics_summary": {
+      "BM-slugify-001": {
+        "titles_per_sec": 1364755,
+        "avg_ms_per_op": 7.33
+      },
+      "BM-wordcount-001": {
+        "ops_per_sec": 481.5,
+        "avg_us_per_op": 2076.7
+      }
+    },
+    "report": "tests/docs/reports/b_report_latest.md"
+  },
+  "summary_report": "tests/docs/reports/all_report_latest.md"
+}

@@ -1,0 +1,94 @@
+{
+  "$schema": "https://ad-flow.org/schemas/change-card.v1.json",
+  "id": "C004",
+  "title": "CI 浅克隆使已收口卡的 sync.commit 祖先校验失败",
+  "version": "v0.1.0",
+  "type": "BugFix",
+  "status": "in_progress",
+  "branch": "fix/C004-ci-full-history",
+  "is_hotfix": false,
+  "target": {
+    "module": "技能自身最小 CI（.github/workflows/ci.yml）",
+    "component": "契约测试步骤的检出深度与 adflow-verify 的 sync.commit 祖先校验",
+    "design_doc": "docs/devel/design/04-产物校验与样例回归.md",
+    "design_topic": "ArtifactVerification"
+  },
+  "why": "GitHub Actions 的 actions/checkout 默认只检出最新一个提交（浅克隆）。CI 的契约测试步骤会运行 scripts/adflow-verify，而 adflow-verify 对已收口的卡要核对 sync.commit 是 HEAD 的祖先；浅克隆里没有父提交对象，git merge-base --is-ancestor 失败，校验器据此报 COMMIT_NOT_ANCESTOR，并因卡片声称 gate.exit_code==0 而追加 GATE_CLAIM_CONTRADICTION。结果是分支上只要出现一张已收口的卡，契约测试步骤就必然失败。实测：收口提交 9c2c076 触发的 GitHub Actions 运行 45304057433 在契约测试步骤失败；本地以 git clone --depth 1 检出同一提交复现了相同的失败。此前的运行 45303166816 通过，只因当时分支上还没有已收口的卡。校验器本身行为正确，需要修的是 CI 的检出深度。",
+  "precheck": {
+    "description": "嗅探 CI 的检出步骤是否仍为默认浅克隆（未声明 fetch-depth: 0）",
+    "command": "python3 -I -c \"import pathlib, sys; sys.exit(0 if 'fetch-depth: 0' in pathlib.Path('.github/workflows/ci.yml').read_text(encoding='utf-8') else 1)\"",
+    "expected": "Exit 1 表示仍为浅克隆需修复；Exit 0 表示已改为完整历史检出",
+    "is_completed": true,
+    "evidence": "修复前执行预检命令 Exit 1（.github/workflows/ci.yml 的检出步骤未声明 fetch-depth: 0）；修复后复测同一命令 Exit 0。"
+  },
+  "callback": {
+    "before": [
+      "scripts/adflow-verify --json"
+    ],
+    "after": [
+      "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v",
+      "scripts/adflow-verify --json",
+      "scripts/adflow-verify --card C004 --to verified --record  # Exit 0 后再同步状态",
+      "scripts/adflow-verify --card C004 --receipt"
+    ]
+  },
+  "changes": [
+    {
+      "scope": "CI 检出深度",
+      "before": "actions/checkout 使用默认浅克隆，CI 工作区只有最新一个提交，父提交对象不存在",
+      "after": "actions/checkout 配置 fetch-depth: 0 检出完整历史，使 adflow-verify 对已收口卡 sync.commit 的祖先校验在 CI 中可以执行",
+      "impact": "只增加 CI 的检出耗时（仓库体积很小，可忽略）；不影响本地执行、ta-verify 以及黄金样例与负向样例步骤"
+    }
+  ],
+  "design": {
+    "doc": "docs/devel/design/04-产物校验与样例回归.md",
+    "topic": "ArtifactVerification",
+    "modified": true,
+    "rule_diff": {
+      "before": "最小 CI：GitHub Actions 在推送与 PR 时执行契约测试、黄金样例与负向样例校验（未规定检出深度）",
+      "after": "最小 CI 以 fetch-depth: 0 检出完整历史后再执行上述三项；契约测试内含 adflow-verify 对已收口卡 sync.commit 的祖先校验，浅克隆会使其误判为 COMMIT_NOT_ANCESTOR"
+    }
+  },
+  "verification": {
+    "result": true,
+    "run_id": "local-20261124-02",
+    "user_quote": "",
+    "signoff": "",
+    "checks": [
+      {
+        "item": "自动化测试",
+        "true_if": "新增回归测试断言 CI 的检出步骤声明 fetch-depth: 0；在 git clone --depth 1 的浅克隆中按 CI 原文执行三个步骤全部通过",
+        "false_if": "浅克隆中任一步骤失败，或缺少针对检出深度的回归测试",
+        "evidence": "新增 test_ci_checks_out_full_history_for_the_commit_ancestry_check，断言 CI 的检出步骤声明 fetch-depth: 0；在仓库临时副本中删去该行后，此测试以 AssertionError（Regex didn't match）失败，未变异时通过。浅克隆对照实验：git clone --depth 1 检出修复提交 d0f76c1（仅 1 个提交），按 CI 原文执行契约测试仍因 COMMIT_NOT_ANCESTOR 失败（test_adflow_governance_gates_clean，FAILED (failures=1)），说明决定性因素就是检出深度；执行 git fetch --unshallow 补全历史（等价于 fetch-depth: 0）后，按 CI 原文执行三个步骤全部通过：test_skill_contract 10 项 OK、test_artifact_gate 16 项 OK、python-sample 与 go-sample 的 --scope all 均 Exit 0、test_ta_verify 16 项 OK。",
+        "result": true
+      },
+      {
+        "item": "行为实测",
+        "true_if": "修复前的收口提交在远端 CI 为 failure，修复提交推送后同一工作流重新运行为 success",
+        "false_if": "推送后 CI 仍失败，或没有重新运行",
+        "evidence": "修复前：收口提交 9c2c076 的远端运行 45304057433 在契约测试步骤 failure（日志为 COMMIT_NOT_ANCESTOR 与 GATE_CLAIM_CONTRADICTION）。修复后：推送修复提交 d0f76c1 触发同一工作流的运行 45306277996（https://github.com/4everSivan/test-anything/actions/runs/45306277996），结论 success，三个步骤全部 success；日志显示检出步骤按 fetch-depth: 0 执行，契约测试 10 项与 16 项 OK、ta-verify 回归 16 项 OK（共 42 项），全文没有出现 COMMIT_NOT_ANCESTOR。",
+        "result": true
+      },
+      {
+        "item": "反向影响排查",
+        "true_if": "本地完整历史下全量单测与 scripts/adflow-verify --json 仍为 Exit 0，黄金样例与负向样例步骤的结果不变",
+        "false_if": "本地门禁出现违规，或 CI 其他步骤的结果发生改变",
+        "evidence": "本地完整历史下 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v 运行 42 项全部 OK（修复前 41 项，新增 1 项），scripts/adflow-verify --json Exit 0（errors 0、warnings 0、advisories 0）。改动只涉及 CI 的检出步骤配置，ta-verify、黄金样例与负向样例未被触碰；浅克隆补全历史后这两步的本地结果与此前的远端运行 45303166816 一致，均为通过。",
+        "result": true
+      }
+    ]
+  },
+  "rejections": [],
+  "sync": {
+    "design_pinned": true,
+    "changelog": true,
+    "commit": "",
+    "tag": ""
+  },
+  "gate": {
+    "tool": "adflow-verify",
+    "version": "1.8.1",
+    "ran_at": "",
+    "exit_code": null
+  }
+}

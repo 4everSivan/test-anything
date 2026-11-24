@@ -1,0 +1,1756 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""ta-verify —— test-anything 产物校验器（只读、单文件、仅标准库）。
+
+核对 create / run 在目标工程 tests/ 下产出的目录、命名、追溯锚点与状态文件是否符合
+references/ 的现行规则。只校验结构与追溯一致性，不判断用例设计质量，也不代替 run 的
+真实测试执行；发现违规时不修改任何文件，修复由 create / run 自身的生成—检查—修复循环完成。
+
+用法：scripts/ta-verify --target <目标工程根目录> [--scope create|run|all] [--json] [--receipt]
+      scripts/ta-verify --target <目标工程根目录> --coverage <覆盖率原始文件>
+退出码：0 全部通过 / 4 存在确定性违规 / 2 用法错误或目标不可读。
+
+--coverage 是覆盖率解析扩展：只认 coverage JSON、LCOV、Go coverprofile 三类格式，把原始文件
+规整为 last_run.json.unit.coverage 的协议对象并以 JSON 输出；与 --scope、--receipt 互斥。
+
+在技能包内运行：不安装、不复制到目标工程，不写任何文件，不访问网络。
+"""
+import argparse
+import ast
+import collections
+import datetime
+import hashlib
+import json
+import os
+import re
+import sys
+
+VERSION = "0.1.0"
+MANIFEST_SCHEMA = "1.0"
+EXIT_OK, EXIT_VIOLATION, EXIT_USAGE = 0, 4, 2
+SCOPES = ("create", "run", "all")
+
+# references/ 规则手册别名：诊断码依据条款所在的文件。
+SB = "references/state-and-backup.md"
+DS = "references/doc-scanning.md"
+CP = "references/case-and-plan-design.md"
+CG = "references/codegen-adapters.md"
+RR = "references/runner-and-reporting.md"
+
+# 诊断码注册表：code -> (默认级别, 释义, 默认修复提示, 依据文件, 依据小节标题)。
+# 每个诊断码必须登记其依据条款；契约测试核对该小节标题在 references/ 中仍然存在，
+# 防止规则手册改名或删条后校验器继续沿用旧规则（漂移）。
+# 级别：ERROR 确定性违规（Exit 4）；WARNING 需关注但不阻断；ADVISORY 旁路提示。
+CHECKS = {
+    # ---- 目录拓扑 ----
+    "TESTS_DIR_MISSING": ("ERROR", "<target>/tests/ 不存在",
+                          "先执行 $test-anything create 生成 tests/ 骨架，再运行校验",
+                          SB, "1. Target `tests/` Directory Topology"),
+    "TESTS_SUBDIR_MISSING": ("ERROR", "tests/ 顶层必备目录缺失",
+                             "重新执行 $test-anything create 补齐标准目录",
+                             SB, "1. Target `tests/` Directory Topology"),
+    "TESTS_OPTIONAL_DIR_MISSING": ("ADVISORY", "tests/fixtures/ 或 tests/tmp/ 不存在",
+                                   "无需处理：tests/tmp/ 受 .gitignore 忽略，二者为空时不入 Git，由 create/run 按需创建",
+                                   SB, "1. Target `tests/` Directory Topology"),
+    # ---- tests/docs/ 子目录与命名 ----
+    "DOCS_SUBDIR_MISSING": ("ERROR", "tests/docs/ 的 drafts/plans/cases（run 范围含 reports）子目录缺失",
+                            "重新执行 $test-anything create 补齐 docs/ 子目录",
+                            SB, "1. Target `tests/` Directory Topology"),
+    "DOCS_REPORTS_DIR_MISSING": ("ADVISORY", "tests/docs/reports/ 尚不存在",
+                                 "无需处理：首次 run 时创建",
+                                 SB, "1. Target `tests/` Directory Topology"),
+    "DOC_FILENAME_NOT_SNAKE_CASE": ("ERROR", "tests/docs/ 下文件名不是英文 snake_case 的 .md 文件",
+                                    "改为英文 snake_case 文件名并使用 .md 扩展名",
+                                    SB, "1. Target `tests/` Directory Topology"),
+    "DOC_TRACK_PREFIX_INVALID": ("ERROR", "cases/ 或 reports/ 文件名缺少 u_/b_/all_ 轨道前缀",
+                                 "cases/ 使用 u_<module>_cases.md 或 b_<module>_cases.md；reports/ 使用 u_/b_/all_report_latest.md",
+                                 SB, "1. Target `tests/` Directory Topology"),
+    "DOC_FILE_MISPLACED": ("ERROR", "文档不符合所在子目录的命名契约，或位于 tests/docs/ 根下且不是 README.md",
+                           "按所在子目录改名或移回对应位置：drafts/<module>_draft.md、plans/test_plan.md|<module>_plan.md、cases/[ub]_<module>_cases.md",
+                           SB, "1. Target `tests/` Directory Topology"),
+    "DOCS_NESTED_DIR": ("ERROR", "tests/docs/ 下出现契约之外或嵌套的目录（如 cases/unit/、reports/benchmark/）",
+                        "将文件平铺到所在子目录，移除契约之外或嵌套的子目录",
+                        SB, "1. Target `tests/` Directory Topology"),
+    "REPORT_UNEXPECTED_ENTRY": ("ERROR", "tests/docs/reports/ 含三份 *_latest.md 以外的条目",
+                                "reports/ 只保留 u_report_latest.md、b_report_latest.md、all_report_latest.md，其余条目移出该目录",
+                                SB, "1. Target `tests/` Directory Topology"),
+    "REPORT_LEGACY_BATCH_RESIDUE": ("ADVISORY", "reports/ 残留旧版本按批次命名的报告",
+                                    "仅在运行小结中列出并提议清理；经用户明确确认后才删除",
+                                    RR, "4. State Synchronization"),
+    "UNIT_FILE_NAME_INVALID": ("ERROR", "tests/unit/ 文件未按 u_<module>_test.<ext> 命名",
+                               "改为 u_<module>_test.<ext>（JS/TS 为 u_<module>.test.<ext>）",
+                               CG, "1. File Naming and Language Runner Conventions"),
+    "BENCH_FILE_NAME_INVALID": ("ERROR", "tests/benchmark/ 文件未按 b_<module>_bench.<ext> 命名",
+                                "改为 b_<module>_bench.<ext>（Go 为 _bench_test.go，JS/TS 为 .bench.<ext>）",
+                                CG, "1. File Naming and Language Runner Conventions"),
+    # ---- 用例追溯：cases 规格 <-> plans 追溯矩阵 <-> 功能点 ----
+    "MODULE_PLAN_MISSING": ("ERROR", "模块有 cases 规格但缺少 plans/<module>_plan.md",
+                            "为该模块生成 tests/docs/plans/<module>_plan.md 及追溯矩阵",
+                            CP, "1.2 Per-Module Test Plan (`tests/docs/plans/<module>_plan.md`)"),
+    "CASE_ID_INVALID": ("ERROR", "用例 ID 格式不合法",
+                        "用例 ID 须形如 UT-<module>-<NNN> 或 BM-<module>-<NNN>，模块名为英文 snake_case",
+                        CP, "2. Stage 3: Structured Case Specifications (`tests/docs/cases/`)"),
+    "CASE_ID_DUPLICATE": ("ERROR", "同一用例 ID 重复出现",
+                          "为重复用例分配未使用的编号；编号只追加、不复用",
+                          CP, "1.2 Per-Module Test Plan (`tests/docs/plans/<module>_plan.md`)"),
+    "CASE_MODULE_MISMATCH": ("ERROR", "用例 ID 的模块或轨道与所在 cases 文档不一致",
+                             "u_<module>_cases.md 只含 UT-<module>-<NNN>，b_<module>_cases.md 只含 BM-<module>-<NNN>",
+                             CP, "2. Stage 3: Structured Case Specifications (`tests/docs/cases/`)"),
+    "CASE_TABLE_CARD_MISMATCH": ("ERROR", "用例总表行与 H3 用例卡片不一一对应",
+                                 "补齐缺失的 H3 用例卡片或总表行，使二者一一对应",
+                                 CP, "2. Stage 3: Structured Case Specifications (`tests/docs/cases/`)"),
+    "CASE_FEATURE_MISSING": ("ERROR", "用例未绑定任何 FP- 功能点",
+                             "在“关联功能点”列填写 FP-<module>-<NN>",
+                             CP, "2. Stage 3: Structured Case Specifications (`tests/docs/cases/`)"),
+    "CASE_FEATURE_UNKNOWN": ("ERROR", "用例绑定的功能点未在该模块草稿或计划矩阵中登记",
+                             "改为该模块已登记的功能点；能力确属新功能时先补文档登记功能点",
+                             DS, "2. Module Identification and Functional Point (`FP-xxx`) Extraction"),
+    "CASE_NOT_IN_PLAN_MATRIX": ("ERROR", "cases 用例未出现在模块计划追溯矩阵中",
+                                "在 <module>_plan.md 追溯矩阵中为该用例补一行",
+                                CP, "1.2 Per-Module Test Plan (`tests/docs/plans/<module>_plan.md`)"),
+    "CASE_PLAN_ROW_MISMATCH": ("ERROR", "追溯矩阵行的功能点或轨道类型与 cases 规格不一致",
+                               "使矩阵行的“功能点 ID”与“类型 (u_/b_)”同 cases 规格一致",
+                               CP, "1.2 Per-Module Test Plan (`tests/docs/plans/<module>_plan.md`)"),
+    "PLAN_CASE_WITHOUT_SPEC": ("ERROR", "追溯矩阵中的用例没有对应的 cases 规格",
+                               "在 cases 文档补该用例规格，或从矩阵移除失效行",
+                               CP, "1.2 Per-Module Test Plan (`tests/docs/plans/<module>_plan.md`)"),
+    # ---- 测试代码锚点 ----
+    "CODE_FUNCTION_WITHOUT_ANCHOR": ("ERROR", "测试或基准函数缺少 @case / @feature 锚点注释",
+                                     "在测试函数紧邻上方补 @case: <用例 ID> 与 @feature: <功能点 ID> 注释",
+                                     CG, "2. Internal Test Code Format Contract"),
+    "CODE_CASE_ANCHOR_UNKNOWN": ("ERROR", "@case 锚点指向不存在的用例",
+                                 "将 @case 改为 cases 文档中存在的用例 ID，或先补充该用例规格",
+                                 CG, "2. Internal Test Code Format Contract"),
+    "CODE_CASE_ANCHOR_MISPLACED": ("ERROR", "@case 锚点指向其他模块或轨道的用例",
+                                   "将 @case 指向本文件所属模块与轨道的用例，或把函数移到对应测试文件",
+                                   CG, "2. Internal Test Code Format Contract"),
+    "CODE_CASE_ANCHOR_DUPLICATE": ("ERROR", "多个测试函数绑定同一用例 ID",
+                                   "每个用例只绑定一个测试函数；为多余函数分配新用例或移除重复锚点",
+                                   CG, "2. Internal Test Code Format Contract"),
+    "CODE_FEATURE_ANCHOR_UNKNOWN": ("ERROR", "@feature 锚点指向该模块未登记的功能点",
+                                    "将 @feature 改为该模块草稿或计划矩阵中已登记的功能点 ID",
+                                    CG, "2. Internal Test Code Format Contract"),
+    "CASE_WITHOUT_TEST_CODE": ("ERROR", "孤立用例：cases 规格中的用例没有任何测试函数绑定",
+                               "为该用例生成带 @case 锚点的测试函数；能力未实现时在规格中标记 todo",
+                               CG, "2. Internal Test Code Format Contract"),
+    # ---- manifest.json ----
+    "MANIFEST_MISSING": ("ERROR", "tests/.state/manifest.json 不存在",
+                         "重新执行 $test-anything create 写入 tests/.state/manifest.json",
+                         SB, "4.1 `tests/.state/manifest.json`"),
+    "MANIFEST_INVALID_JSON": ("ERROR", "manifest.json 不是合法 JSON 对象",
+                              "修复 manifest.json 的 JSON 语法后重跑校验",
+                              SB, "4.1 `tests/.state/manifest.json`"),
+    "MANIFEST_FIELD_MISSING": ("ERROR", "manifest.json 缺少协议必填字段",
+                               "按 manifest 模板补齐字段",
+                               SB, "4.1 `tests/.state/manifest.json`"),
+    "MANIFEST_FIELD_INVALID": ("ERROR", "manifest.json 字段类型或取值不符合协议",
+                               "按 state-and-backup 的 manifest 协议修正字段类型与取值",
+                               SB, "4.1 `tests/.state/manifest.json`"),
+    "MANIFEST_MODULE_INVALID": ("ERROR", "manifest.json 模块条目结构不合法",
+                                "按模块条目结构修正：文档/夹具/代码路径、代码 SHA-256 与 case_ids",
+                                SB, "4.1 `tests/.state/manifest.json`"),
+    "MANIFEST_MODULE_UNREGISTERED": ("ERROR", "manifest.modules 与 cases/ 中的模块集合不一致",
+                                     "使 manifest.modules 与 tests/docs/cases/ 中的模块一一对应",
+                                     SB, "4.1 `tests/.state/manifest.json`"),
+    "MANIFEST_CASE_IDS_MISMATCH": ("ERROR", "modules[].case_ids 与 cases 文档不一致",
+                                   "使 case_ids 与 cases 文档中需生成代码的用例集合一致",
+                                   SB, "4.1 `tests/.state/manifest.json`"),
+    "MANIFEST_FILE_MISSING": ("ERROR", "manifest 登记的受管文件在磁盘上不存在",
+                              "重新生成该受管文件，或修正 manifest 中记录的路径",
+                              SB, "4.1 `tests/.state/manifest.json`"),
+    "MANIFEST_HASH_MISMATCH": ("WARNING", "受管文件 SHA-256 与 manifest 记录不一致（疑似人工修改）",
+                               "增量 create 更新该文件前先快照到 _test_anything_backup/snapshots/<run_id>/；不要为求通过而改写哈希",
+                               SB, "3. `.gitignore` and `/_test_anything_backup/` Isolation"),
+    # ---- last_run.json ----
+    "LAST_RUN_MISSING": ("ERROR", "tests/.state/last_run.json 不存在",
+                         "执行 $test-anything run 后再校验",
+                         SB, "4.2 `tests/.state/last_run.json`"),
+    "LAST_RUN_INVALID_JSON": ("ERROR", "last_run.json 不是合法 JSON 对象",
+                              "修复 last_run.json 的 JSON 语法后重跑校验",
+                              SB, "4.2 `tests/.state/last_run.json`"),
+    "LAST_RUN_FIELD_MISSING": ("ERROR", "last_run.json 缺少协议必填字段",
+                               "按 last_run 模板补齐字段",
+                               SB, "4.2 `tests/.state/last_run.json`"),
+    "LAST_RUN_FIELD_INVALID": ("ERROR", "last_run.json 字段类型或取值不符合协议",
+                               "按 state-and-backup 的 last_run 协议修正类型与取值",
+                               SB, "4.2 `tests/.state/last_run.json`"),
+    "RUN_TRACK_SCOPE_MISMATCH": ("ERROR", "轨道状态与本次运行 scope 不一致",
+                                 "范围外轨道记 not_run，范围内的轨道不得为 not_run",
+                                 RR, "3.0 Track Status Derivation"),
+    "LAST_RUN_STATUS_EVIDENCE_CONFLICT": ("ERROR", "轨道状态与退出码、用例计数矛盾",
+                                          "按退出码与解析计数重新推导轨道状态，不得以模板默认值充当证据",
+                                          RR, "3.0 Track Status Derivation"),
+    "RUN_SCOPE_REPORT_MISMATCH": ("ERROR", "本次 scope 应产出的报告集合与磁盘不一致",
+                                  "按本次 scope 原地覆盖对应的 *_latest.md，不写范围外的报告",
+                                  RR, "3. Three-Part Report Contracts (`tests/docs/reports/`)"),
+    "RUN_REPORT_PATH_INVALID": ("ERROR", "last_run.json 的报告路径不符合协议",
+                                "report 路径须指向 tests/docs/reports/ 下对应的 *_latest.md",
+                                SB, "4.2 `tests/.state/last_run.json`"),
+    # ---- 报告内容 ----
+    "REPORT_HEADER_INVALID": ("ERROR", "报告页眉缺失、格式不合法或与报告类型不符",
+                              "按单行引用块页眉格式修正 module/type/run_id/updated_at/status",
+                              SB, "2. Universal Markdown Header and Language Rule"),
+    "REPORT_STATUS_MISMATCH": ("ERROR", "报告页眉状态与 last_run.json 的轨道状态不一致",
+                               "使报告页眉状态与 last_run.json 中对应轨道的状态一致",
+                               RR, "3. Three-Part Report Contracts (`tests/docs/reports/`)"),
+    "REPORT_CASE_UNKNOWN": ("ERROR", "报告明细引用了 cases 文档中不存在的用例 ID",
+                            "报告明细只列出 cases 文档中存在的用例 ID",
+                            RR, "3. Three-Part Report Contracts (`tests/docs/reports/`)"),
+    # ---- 覆盖率：last_run.json.unit.coverage 与报告中的覆盖率栏目 ----
+    "COVERAGE_FIELD_MISSING": ("ERROR", "unit.coverage 缺少协议必填字段",
+                               "按 state-and-backup 的 coverage 协议补齐字段",
+                               SB, "4.2 `tests/.state/last_run.json`"),
+    "COVERAGE_FIELD_INVALID": ("ERROR", "unit.coverage 字段类型或取值不符合协议",
+                               "按 coverage 协议修正取值；Go 只有语句块级覆盖，branch_pct 必须为 N/A",
+                               SB, "4.2 `tests/.state/last_run.json`"),
+    "COVERAGE_UNCOVERED_OVER_CAP": ("ERROR", "uncovered[] 中单个模块超过 50 条",
+                                    "每个模块最多保留 50 条，其余条数记入 uncovered_omitted",
+                                    SB, "4.2 `tests/.state/last_run.json`"),
+    "COVERAGE_UNAVAILABLE_WITHOUT_REASON": ("ERROR", "覆盖率不可用但没有说明原因",
+                                            "写明 coverage.status 及具体原因，例如工具未安装或解析失败",
+                                            RR, "5. Coverage Collection and Reporting"),
+    "COVERAGE_VALUE_WITHOUT_EVIDENCE": ("ERROR", "覆盖率未测得却写成了数值",
+                                        "未测得一律写 N/A，不得填 0 或任何数值",
+                                        RR, "5. Coverage Collection and Reporting"),
+    "COVERAGE_RAW_UNREADABLE": ("ERROR", "coverage.raw 登记的原始文件无法解析",
+                                "只认 coverage JSON、LCOV、Go coverprofile 三类格式；用 scripts/ta-verify --coverage 重新解析",
+                                RR, "5. Coverage Collection and Reporting"),
+    "COVERAGE_RAW_MISMATCH": ("ERROR", "unit.coverage 与原始覆盖率文件不一致",
+                             "以 scripts/ta-verify --coverage 的解析结果为准重新回填，不要手工估算",
+                             RR, "5. Coverage Collection and Reporting"),
+    "COVERAGE_REPORT_MISMATCH": ("ERROR", "报告中的覆盖率与 last_run.json 不一致，或缺少对应栏目",
+                                 "按 last_run.json 的 coverage 如实渲染 u_report 第 1 节统计表、第 4 节与 all_report 覆盖率列",
+                                 RR, "5. Coverage Collection and Reporting"),
+}
+
+# ---- 目标工程的命名契约 ----
+MODULE = r"[a-z][a-z0-9_]*"
+SNAKE_MD_RE = re.compile(r"^[a-z0-9]+(?:_[a-z0-9]+)*\.md$")
+DRAFT_RE = re.compile(r"^(?:[ub]_)?(" + MODULE + r")_draft\.md$")
+PLAN_RE = re.compile(r"^(" + MODULE + r")_plan\.md$")
+CASES_RE = re.compile(r"^([ub])_(" + MODULE + r")_cases\.md$")
+REPORT_RE = re.compile(r"^([ub]|all)_report_latest\.md$")
+LEGACY_REPORT_RE = re.compile(r"^[ub]_report_\d{8}_\d{6}\.md$")
+UNIT_RE = re.compile(r"^u_(" + MODULE + r")(?:_test|\.test)\.[a-z0-9]+$")
+BENCH_RE = re.compile(r"^b_(" + MODULE + r")(?:_bench(?:_test)?|\.bench)\.[a-z0-9]+$")
+
+ID_LOOSE_RE = re.compile(r"(?<![A-Za-z0-9_])(UT|BM)-([A-Za-z0-9_\-]+?)-(\d+)(?![A-Za-z0-9_])")
+CASE_ID_RE = re.compile(r"^(UT|BM)-(" + MODULE + r")-(\d{3,})$")
+FP_RE = re.compile(r"(?<![A-Za-z0-9_])FP-(" + MODULE + r")-(\d{2,})(?![A-Za-z0-9_])")
+CARD_RE = re.compile(r"^###\s+((?:UT|BM)-[A-Za-z0-9_\-]+?-\d+)\s*[:：]")
+SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
+SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
+RUN_ID_RE = re.compile(r"^\d{8}_\d{6}$")
+REPORT_HEADER_RE = re.compile(
+    r"^>\s*\*\*module\*\*:\s*(?P<module>[^｜|]+?)\s*[｜|]\s*"
+    r"\*\*type\*\*:\s*(?P<type>[^｜|]+?)\s*[｜|]\s*"
+    r"\*\*run_id\*\*:\s*(?P<run_id>[^｜|]+?)\s*[｜|]\s*"
+    r"\*\*updated_at\*\*:\s*(?P<updated_at>[^｜|]+?)\s*[｜|]\s*"
+    r"\*\*status\*\*:\s*(?P<status>\S+)\s*$")
+
+TESTS_TOPDIRS = ("docs", "unit", "benchmark", ".state")
+TESTS_OPTIONAL_DIRS = ("fixtures", "tmp")
+DOCS_SUBDIRS = ("drafts", "plans", "cases", "reports")
+# 能力未实现时规格标记 todo / unimplemented，此类用例不生成测试代码。
+EXEMPT_STATUSES = ("todo", "unimplemented")
+UNIT_STATUSES = ("passed", "failed", "error", "not_run")
+BENCH_STATUSES = ("completed", "failed", "error", "not_run")
+UNIT_FIELDS = ("status", "command", "exit_code", "total", "passed", "failed", "skipped",
+               "duration_ms", "report")
+BENCH_FIELDS = ("status", "command", "exit_code", "total", "duration_ms", "metrics_summary",
+                "report")
+# scope -> 本次运行应原地覆盖的报告集合。
+SCOPE_REPORTS = {"all": ("unit", "benchmark", "all"),
+                 "unittest": ("unit",),
+                 "benchmark": ("benchmark",)}
+REPORT_DIR = "tests/docs/reports"
+REPORT_FILES = {"unit": "u_report_latest.md", "benchmark": "b_report_latest.md",
+                "all": "all_report_latest.md"}
+REPORT_TYPES = {"unit": "unit_report", "benchmark": "benchmark_report", "all": "all_report"}
+REPORT_STATUSES = {"unit": ("passed", "failed", "error"),
+                   "benchmark": ("completed", "failed", "error"),
+                   "all": ("passed", "failed", "error")}
+STATUS_RANK = {"passed": 1, "completed": 1, "failed": 2, "error": 3}
+
+# ---- 覆盖率：unit.coverage 协议与原始文件解析 ----
+COVERAGE_STATUSES = ("ok", "unavailable", "not_supported", "not_run")
+COVERAGE_FORMATS = ("coverage-json", "lcov", "go-coverprofile")
+COVERAGE_TOOLS = {"coverage-json": "coverage.py", "lcov": "lcov",
+                  "go-coverprofile": "go test -coverprofile"}
+COVERAGE_KEYS = ("status", "reason", "tool", "format", "line_pct", "branch_pct", "raw",
+                 "modules", "uncovered", "uncovered_omitted")
+COVERAGE_MODULE_KEYS = ("line_pct", "branch_pct", "uncovered_total")
+UNCOVERED_KEYS = ("module", "file", "symbol", "kind", "lines")
+UNCOVERED_KINDS = ("line", "branch", "block")
+UNCOVERED_CAP = 50
+# 运行期临时区与备份区不是业务源码，不计入覆盖率。
+NON_SOURCE_PREFIXES = ("tests/", "_test_anything_backup/")
+GO_FUNC_RE = re.compile(r"^func\s+(?:\(\s*[^)]*\b(\w+)\s*\)\s*)?(\w+)\s*\(")
+GO_BLOCK_RE = re.compile(r"^(?P<file>[^:]+):(?P<start>\d+)\.\d+,(?P<end>\d+)\.\d+\s+"
+                         r"(?P<stmts>\d+)\s+(?P<count>\d+)\s*$")
+COVERAGE_SECTION = "## 4. 未覆盖符号"
+
+# 测试/基准函数的识别：按扩展名匹配各语言运行器的发现规则（见 codegen-adapters 第 1 节）。
+JS_FUNC_RE = re.compile(r"^\s*(test|it|bench)\s*\(\s*['\"`]")
+FUNC_PATTERNS = {
+    ".py": re.compile(r"^\s*(?:async\s+)?def\s+(test_\w*)\s*\("),
+    ".go": re.compile(r"^func\s+((?:Test|Benchmark)\w*)\s*\("),
+    ".rs": re.compile(r"^\s*fn\s+((?:test|bench)_\w*)\s*\("),
+}
+for _ext in (".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx"):
+    FUNC_PATTERNS[_ext] = JS_FUNC_RE
+FUNC_GENERIC_RE = re.compile(r"^\s*(?:function\s+)?((?:test_ut|test_bm|TestUT_|BenchmarkBM_|bench_bm_)\w*)")
+# 函数上方允许夹在锚点注释与声明之间的装饰器 / 属性行（@pytest.mark…、#[test]）。
+DECORATOR_RE = re.compile(r"^(?:@|#\[)")
+COMMENT_RE = re.compile(r"^(?:#|//)")
+ANCHOR_RE = re.compile(r"@(\w+)\s*:\s*([^\s#]+)")
+
+Case = collections.namedtuple("Case", "case_id track module features status path line")
+MatrixRow = collections.namedtuple("MatrixRow", "features track line")
+Header = collections.namedtuple("Header", "module type run_id status")
+
+
+class Unreadable(Exception):
+    """目标工程内的文件无法读取（权限、I/O 或编码错误）。"""
+
+
+# ---- 通用小工具 ----
+def is_int(value):
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def is_number(value):
+    """有限的 int 或 float；布尔值与 NaN、无穷不算数值。"""
+    return (isinstance(value, (int, float)) and not isinstance(value, bool)
+            and value == value and value not in (float("inf"), float("-inf")))
+
+
+def is_count(value):
+    return is_int(value) and value >= 0
+
+
+def is_duration(value):
+    return (isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0)
+
+
+def is_iso8601(value):
+    if not isinstance(value, str) or not value:
+        return False
+    # Python 3.11 之前的 fromisoformat 不接受 Z 后缀。
+    text = value[:-1] + "+00:00" if value.endswith("Z") else value
+    try:
+        datetime.datetime.fromisoformat(text)
+    except ValueError:
+        return False
+    return True
+
+
+def reject_constant(token):
+    raise ValueError("JSON 不允许 %s" % token)
+
+
+def strict_case_id(text):
+    """文本是严格的 UT-<module>-<NNN> / BM-<module>-<NNN> 时返回 (前缀, 模块)，否则 None。"""
+    match = CASE_ID_RE.match(text.strip("` "))
+    return (match.group(1), match.group(2)) if match else None
+
+
+def loose_case_id(cell):
+    """从表格单元格提取形似用例 ID 的记号；没有记号返回 None。"""
+    match = ID_LOOSE_RE.search(cell)
+    return match.group(0) if match else None
+
+
+def requires_code(status):
+    """规格状态不是 todo / unimplemented（可组合书写）时，用例必须有测试函数。"""
+    tokens = [token for token in re.split(r"[/,，\s]+", status) if token]
+    return not tokens or any(token not in EXEMPT_STATUSES for token in tokens)
+
+
+def worst_status(*statuses):
+    """取已执行轨道中最差的状态；基准 completed 在汇总报告中记为 passed。"""
+    executed = ["passed" if s == "completed" else s for s in statuses if s != "not_run"]
+    return max(executed, key=STATUS_RANK.get) if executed else None
+
+
+def line_number(text, offset):
+    return text.count("\n", 0, offset) + 1
+
+
+# ---- Markdown 表格与页眉解析 ----
+def split_table_row(line):
+    """按单元格切分 Markdown 表格行；反引号代码跨度内的竖线不切分。"""
+    ticks = [index for index, char in enumerate(line) if char == "`"]
+    cells, start = [], 0
+    for index, char in enumerate(line):
+        if char != "|":
+            continue
+        before = sum(1 for tick in ticks if tick < index)
+        after = sum(1 for tick in ticks if tick > index)
+        if before % 2 == 1 and after >= 1:
+            continue
+        cells.append(line[start:index])
+        start = index + 1
+    cells.append(line[start:])
+    if cells and not cells[0].strip():
+        cells = cells[1:]
+    if cells and not cells[-1].strip():
+        cells = cells[:-1]
+    return [cell.strip() for cell in cells]
+
+
+def is_separator(cells):
+    return bool(cells) and all(re.fullmatch(r":?-{3,}:?", cell) for cell in cells if cell)
+
+
+def read_table(text, section_keyword, columns):
+    """读取标题含 section_keyword 的小节中的 Markdown 表格。
+
+    columns 为 {名称: (表头关键字, 模板列号)}，-1 表示末列。首行表格视为表头并据其
+    关键字定位列，找不到关键字时退回模板列号。返回 [(行号, {名称: 单元格})]；没有该小节返回 None。
+    """
+    rows, active, positions = None, False, None
+    for number, raw in enumerate(text.splitlines(), 1):
+        heading = re.match(r"^#{2,6}\s+(.*)$", raw)
+        if heading:
+            active, positions = section_keyword in heading.group(1), None
+            continue
+        if not active or not raw.lstrip().startswith("|"):
+            continue
+        cells = split_table_row(raw)
+        if is_separator(cells):
+            continue
+        if positions is None:
+            positions = {}
+            for name, (keyword, fallback) in columns.items():
+                found = next((i for i, cell in enumerate(cells) if keyword in cell), None)
+                positions[name] = found if found is not None else (len(cells) - 1 if fallback < 0 else fallback)
+            rows = []
+            continue
+        rows.append((number, {name: cells[pos] if 0 <= pos < len(cells) else ""
+                              for name, pos in positions.items()}))
+    return rows
+
+
+def features_in(cell):
+    """单元格内出现的功能点 ID 列表（去重保序）。"""
+    seen = []
+    for module, number in FP_RE.findall(cell):
+        feature = "FP-%s-%s" % (module, number)
+        if feature not in seen:
+            seen.append(feature)
+    return seen
+
+
+def anchors_above(lines, index):
+    """收集紧邻第 index 行上方注释块里的 @锚点；遇到空行或普通代码即停止。"""
+    found, cursor = {}, index - 1
+    while cursor >= 0:
+        stripped = lines[cursor].strip()
+        if not stripped or not (COMMENT_RE.match(stripped) or DECORATOR_RE.match(stripped)):
+            break
+        for key, value in ANCHOR_RE.findall(stripped):
+            found.setdefault(key, value)
+        cursor -= 1
+    return found
+
+
+def find_functions(text, filename):
+    """识别测试/基准函数，返回 [(函数名, 行号, {锚点名: 值})]。"""
+    extension = os.path.splitext(filename)[1].lower()
+    pattern = FUNC_PATTERNS.get(extension, FUNC_GENERIC_RE)
+    lines = text.splitlines()
+    found = []
+    for index, line in enumerate(lines):
+        match = pattern.match(line)
+        if not match:
+            continue
+        name = match.group(1)
+        if name == "TestMain":
+            continue  # Go 测试入口钩子，不是用例
+        if pattern is JS_FUNC_RE:
+            name += "(...)"
+        found.append((name, index + 1, anchors_above(lines, index)))
+    return found
+
+
+# ---- 目标工程的只读视图 ----
+class Target:
+    """目标工程的只读视图：只提供读取类访问，不打开任何写句柄。"""
+
+    def __init__(self, root):
+        self.root = root
+
+    def path(self, rel):
+        return os.path.join(self.root, *rel.split("/"))
+
+    def is_dir(self, rel):
+        return os.path.isdir(self.path(rel))
+
+    def is_file(self, rel):
+        return os.path.isfile(self.path(rel))
+
+    def list_dir(self, rel):
+        """子项名称的排序列表；目录须已存在。"""
+        try:
+            return sorted(os.listdir(self.path(rel)))
+        except OSError as exc:
+            raise Unreadable("无法列出目录 %s: %s" % (rel, exc))
+
+    def read(self, rel):
+        try:
+            with open(self.path(rel), "r", encoding="utf-8") as handle:
+                return handle.read()
+        except (OSError, UnicodeDecodeError) as exc:
+            raise Unreadable("无法读取 %s: %s" % (rel, exc))
+
+    def load_json(self, rel):
+        """返回 (数据, 错误文本)；解析失败或顶层不是对象时数据为 None。"""
+        try:
+            data = json.loads(self.read(rel), parse_constant=reject_constant)
+        except ValueError as exc:
+            return None, "JSON 解析失败: %s" % exc
+        if not isinstance(data, dict):
+            return None, "JSON 顶层必须是对象"
+        return data, None
+
+    def sha256(self, rel):
+        try:
+            digest = hashlib.sha256()
+            with open(self.path(rel), "rb") as handle:
+                for block in iter(lambda: handle.read(1 << 16), b""):
+                    digest.update(block)
+        except OSError as exc:
+            raise Unreadable("无法读取 %s: %s" % (rel, exc))
+        return digest.hexdigest()
+
+
+class Artifacts:
+    """从目标工程 tests/ 盘点出的受管资产索引。"""
+
+    def __init__(self):
+        self.drafts = {}                                  # module -> 相对路径
+        self.plans = {}                                   # module -> 相对路径
+        self.cases = {}                                   # (轨道 u/b, module) -> 相对路径
+        self.unit_code = collections.defaultdict(list)    # module -> [相对路径]
+        self.bench_code = collections.defaultdict(list)
+        self.cases_by_id = {}                             # 用例 ID -> Case
+        self.declared_fps = collections.defaultdict(set)  # module -> {FP ID}
+
+
+class Ctx:
+    """一次校验的共享上下文：汇总发现项，并按检查组记录是否执行、是否通过。"""
+
+    GROUPS = ("顶层目录", "文档命名", "用例追溯", "代码锚点", "manifest",
+              "运行状态", "覆盖率", "报告集合", "报告页眉", "报告用例")
+
+    def __init__(self, target, scope):
+        self.target = target
+        self.scope = scope
+        self.scopes = ("create", "run") if scope == "all" else (scope,)
+        self.findings = []
+        self.visited = []
+        self.group = None
+        self.muted = False
+
+    def enter(self, group):
+        if group not in self.visited:
+            self.visited.append(group)
+        self.group = group
+
+    def add(self, code, path, message, line=None):
+        """唯一发出路径：诊断码必须已登记其依据条款；静默索引期间只解析不报告。"""
+        if self.muted:
+            return
+        if code not in CHECKS:
+            raise KeyError("未登记依据条款的诊断码: %s" % code)
+        severity, _, hint, reference, section = CHECKS[code]
+        self.findings.append({
+            "severity": severity, "code": code, "group": self.group, "path": path,
+            "line": line, "message": message, "hint": hint,
+            "basis": "%s#%s" % (reference, section)})
+
+
+# ---- 盘点：目录拓扑与命名契约 ----
+def classify_doc(ctx, art, rel, subdir, name):
+    """核对单个 tests/docs/ 文件的命名契约，并登记到资产索引；reports/ 由 scan_reports 负责。"""
+    if not SNAKE_MD_RE.match(name):
+        ctx.add("DOC_FILENAME_NOT_SNAKE_CASE", rel, "文件名不是英文 snake_case 的 .md")
+        return
+    if subdir is None:
+        ctx.add("DOC_FILE_MISPLACED", rel, "tests/docs/ 根下只允许 README.md 与四个子目录")
+    elif subdir == "drafts":
+        match = DRAFT_RE.match(name)
+        if match:
+            art.drafts.setdefault(match.group(1), rel)
+        else:
+            ctx.add("DOC_FILE_MISPLACED", rel, "drafts/ 下须命名为 <module>_draft.md（或 u_/b_<module>_draft.md）")
+    elif subdir == "plans":
+        if name == "test_plan.md":
+            return
+        match = PLAN_RE.match(name)
+        if match:
+            art.plans.setdefault(match.group(1), rel)
+        else:
+            ctx.add("DOC_FILE_MISPLACED", rel, "plans/ 下须命名为 test_plan.md 或 <module>_plan.md")
+    elif subdir == "cases":
+        match = CASES_RE.match(name)
+        if match:
+            art.cases.setdefault((match.group(1), match.group(2)), rel)
+        elif name.endswith("_cases.md"):
+            ctx.add("DOC_TRACK_PREFIX_INVALID", rel, "cases/ 文件名须以 u_ 或 b_ 开头")
+        else:
+            ctx.add("DOC_FILE_MISPLACED", rel, "cases/ 下须命名为 u_<module>_cases.md 或 b_<module>_cases.md")
+
+
+def scan_docs(ctx, art):
+    """盘点 tests/docs/ 的 drafts、plans、cases：登记资产索引并核对命名契约。
+
+    任何范围都建立索引；仅 run 范围时调用方已把 ctx 置为静默，只索引、不报告 create 侧问题。
+    """
+    target, docs = ctx.target, "tests/docs"
+    if not target.is_dir(docs):
+        return
+    for name in target.list_dir(docs):
+        rel = "%s/%s" % (docs, name)
+        if not target.is_dir(rel):
+            if name != "README.md":
+                classify_doc(ctx, art, rel, None, name)
+            continue
+        if name not in DOCS_SUBDIRS:
+            ctx.add("DOCS_NESTED_DIR", rel, "tests/docs/ 下的契约外目录 %s/" % name)
+            continue
+        if name == "reports":
+            continue  # 由 scan_reports 在任何范围内核对
+        for entry in target.list_dir(rel):
+            child = "%s/%s" % (rel, entry)
+            if target.is_dir(child):
+                ctx.add("DOCS_NESTED_DIR", child, "tests/docs/%s/ 须保持平铺，不允许子目录" % name)
+            else:
+                classify_doc(ctx, art, child, name, entry)
+    for name in ("drafts", "plans", "cases"):
+        if not target.is_dir("%s/%s" % (docs, name)):
+            ctx.add("DOCS_SUBDIR_MISSING", docs, "tests/docs/ 缺少子目录 %s/" % name)
+
+
+def scan_reports(ctx):
+    """盘点 reports/：任何范围都只允许三份 *_latest.md；旧批次报告仅作提示。"""
+    ctx.enter("报告集合")
+    if not ctx.target.is_dir(REPORT_DIR):
+        if "run" in ctx.scopes:
+            ctx.add("DOCS_SUBDIR_MISSING", "tests/docs", "tests/docs/ 缺少子目录 reports/")
+        else:
+            ctx.enter("文档命名")
+            ctx.add("DOCS_REPORTS_DIR_MISSING", "tests/docs", "尚无 reports/ 目录（首次 run 时创建）")
+        return
+    for name in ctx.target.list_dir(REPORT_DIR):
+        rel = "%s/%s" % (REPORT_DIR, name)
+        if LEGACY_REPORT_RE.match(name) and not ctx.target.is_dir(rel):
+            ctx.add("REPORT_LEGACY_BATCH_RESIDUE", rel, "旧版本按批次命名的报告")
+        elif not REPORT_RE.match(name) or ctx.target.is_dir(rel):
+            ctx.add("REPORT_UNEXPECTED_ENTRY", rel, "不是三份 *_latest.md 之一的条目")
+
+
+def scan_code_dir(ctx, art, rel, pattern, code, index):
+    """盘点 tests/unit/ 或 tests/benchmark/，核对 u_/b_ 文件命名。"""
+    if not ctx.target.is_dir(rel):
+        return
+    for name in ctx.target.list_dir(rel):
+        if name.startswith(".") or name == "__pycache__":
+            continue  # 隐藏文件与解释器缓存不是 create 的产物
+        entry = "%s/%s" % (rel, name)
+        match = pattern.match(name)
+        if ctx.target.is_dir(entry) or not match:
+            ctx.add(code, entry, "文件名不符合本目录的 u_/b_ 命名契约")
+        else:
+            index[match.group(1)].append(entry)
+
+
+def scan_target(ctx, art):
+    """盘点受管资产；create 在范围内时同时核对目录拓扑与命名。tests/ 不存在时返回 False。"""
+    target, strict = ctx.target, "create" in ctx.scopes
+    if not target.is_dir("tests"):
+        ctx.enter("顶层目录")
+        ctx.add("TESTS_DIR_MISSING", "tests", "<target>/tests/ 不存在，无产物可校验")
+        return False
+    if strict:
+        ctx.enter("顶层目录")
+        for name in TESTS_TOPDIRS:
+            if not target.is_dir("tests/" + name):
+                ctx.add("TESTS_SUBDIR_MISSING", "tests/" + name, "tests/ 顶层缺少必备目录 %s/" % name)
+        for name in TESTS_OPTIONAL_DIRS:
+            if not target.is_dir("tests/" + name):
+                ctx.add("TESTS_OPTIONAL_DIR_MISSING", "tests/" + name, "目录不存在（可为空或受 .gitignore 忽略）")
+        ctx.enter("文档命名")
+    else:
+        ctx.muted = True  # 仅 run 范围：只建立索引用于核对报告，不报告 create 侧的命名问题
+    try:
+        scan_docs(ctx, art)
+    finally:
+        ctx.muted = False
+    if strict:
+        scan_code_dir(ctx, art, "tests/unit", UNIT_RE, "UNIT_FILE_NAME_INVALID", art.unit_code)
+        scan_code_dir(ctx, art, "tests/benchmark", BENCH_RE, "BENCH_FILE_NAME_INVALID", art.bench_code)
+    scan_reports(ctx)
+    return True
+
+
+# ---- create 范围：追溯、锚点、manifest ----
+def parse_cases_doc(ctx, art, track, module, rel):
+    """解析 cases 规格的总表与 H3 卡片，建立用例索引并核对二者一致。"""
+    text = ctx.target.read(rel)
+    prefix = "UT" if track == "u" else "BM"
+    columns = {"id": ("用例 ID", 0), "features": ("功能点", 2), "status": ("状态", -1)}
+    rows = read_table(text, "总表", columns)
+    cards = {match.group(1): number for number, raw in enumerate(text.splitlines(), 1)
+             for match in [CARD_RE.match(raw)] if match}
+    if rows is None and cards:
+        ctx.add("CASE_TABLE_CARD_MISMATCH", rel, "缺少标题含“总表”的用例总表", 1)
+    listed = set()
+    for line, cells in rows or []:
+        token = loose_case_id(cells["id"])
+        parsed = strict_case_id(token) if token else None
+        if parsed is None:
+            ctx.add("CASE_ID_INVALID", rel, "用例总表该行的用例 ID 无法识别: %r" % cells["id"], line)
+            continue
+        if parsed != (prefix, module):
+            ctx.add("CASE_MODULE_MISMATCH", rel, "用例 %s 不属于 %s_%s_cases.md" % (token, track, module), line)
+            continue
+        if token in art.cases_by_id:
+            ctx.add("CASE_ID_DUPLICATE", rel, "用例 ID %s 重复出现" % token, line)
+            continue
+        listed.add(token)
+        features = features_in(cells["features"])
+        status = cells["status"].strip("` ").lower()
+        if not features:
+            ctx.add("CASE_FEATURE_MISSING", rel, "用例 %s 未绑定 FP- 功能点" % token, line)
+        art.cases_by_id[token] = Case(token, track, module, features, status, rel, line)
+    for token in sorted(listed - set(cards)):
+        ctx.add("CASE_TABLE_CARD_MISMATCH", rel, "用例 %s 在总表有行但缺少 H3 用例卡片" % token,
+                art.cases_by_id[token].line)
+    for token, line in sorted(cards.items()):
+        if token not in listed:
+            ctx.add("CASE_TABLE_CARD_MISMATCH", rel, "H3 卡片 %s 在总表中没有对应行" % token, line)
+
+
+def check_module_matrix(ctx, art, module):
+    """模块计划追溯矩阵与 cases 规格、草稿功能点的双向核对。"""
+    draft = art.drafts.get(module)
+    if draft is not None:
+        art.declared_fps[module].update(
+            features_in(" ".join(ctx.target.read(draft).splitlines())))
+    cases = {cid: case for cid, case in art.cases_by_id.items() if case.module == module}
+    plan = art.plans.get(module)
+    matrix = {}
+    if plan is None:
+        ctx.add("MODULE_PLAN_MISSING", "tests/docs/plans", "模块 %s 有 cases 规格但缺少 %s_plan.md" % (module, module))
+    else:
+        text = ctx.target.read(plan)
+        art.declared_fps[module].update(features_in(" ".join(text.splitlines())))
+        columns = {"features": ("功能点", 0), "id": ("用例 ID", 1), "track": ("类型", 2)}
+        for line, cells in read_table(text, "追溯矩阵", columns) or []:
+            token = loose_case_id(cells["id"])
+            if strict_case_id(token) is None:
+                ctx.add("PLAN_CASE_WITHOUT_SPEC", plan, "追溯矩阵该行的用例 ID 无法识别: %r" % cells["id"], line)
+                continue
+            matrix[token] = MatrixRow(cells["features"], cells["track"].strip("` ").lower(), line)
+    declared = art.declared_fps[module]
+    for cid, case in sorted(cases.items()):
+        if declared:
+            for feature in case.features:
+                if feature not in declared:
+                    ctx.add("CASE_FEATURE_UNKNOWN", case.path, "用例 %s 绑定的功能点 %s 未在模块 %s 的草稿或计划矩阵中登记" % (cid, feature, module), case.line)
+        row = matrix.get(cid)
+        if row is None:
+            if plan is not None:
+                ctx.add("CASE_NOT_IN_PLAN_MATRIX", plan, "用例 %s 未出现在追溯矩阵中" % cid)
+        elif any(feature not in features_in(row.features) for feature in case.features) \
+                or row.track != "%s_" % case.track:
+            ctx.add("CASE_PLAN_ROW_MISMATCH", plan, "用例 %s 的矩阵行（功能点 %s，类型 %r）与 cases 规格（功能点 %s，类型 %s_）不一致" % (cid, row.features, row.track, ", ".join(case.features), case.track), row.line)
+    for token, row in sorted(matrix.items()):
+        if token not in cases:
+            ctx.add("PLAN_CASE_WITHOUT_SPEC", plan, "追溯矩阵中的用例 %s 没有对应的 cases 规格" % token, row.line)
+
+
+def check_code_file(ctx, art, rel, track, module, bound):
+    """核单个测试代码文件：每个测试函数的 @case/@feature 锚点都能回指 cases 规格。"""
+    for name, line, anchors in find_functions(ctx.target.read(rel), rel):
+        missing = [key for key in ("case", "feature") if key not in anchors]
+        if missing:
+            ctx.add("CODE_FUNCTION_WITHOUT_ANCHOR", rel, "函数 %s 缺少 %s 锚点注释" % (name, " / ".join("@" + key for key in missing)), line)
+        case_id = anchors.get("case")
+        if case_id is not None:
+            target = art.cases_by_id.get(case_id)
+            if target is None:
+                ctx.add("CODE_CASE_ANCHOR_UNKNOWN", rel, "函数 %s 的 @case %s 在 cases 文档中不存在" % (name, case_id), line)
+            elif (target.track, target.module) != (track, module):
+                ctx.add("CODE_CASE_ANCHOR_MISPLACED", rel, "函数 %s 的 @case %s 属于 cases/%s_%s_cases.md，不属于本文件所属的 %s / %s" % (name, case_id, target.track, target.module, track, module), line)
+            elif case_id in bound:
+                ctx.add("CODE_CASE_ANCHOR_DUPLICATE", rel, "函数 %s 与函数 %s 重复绑定用例 %s" % (name, bound[case_id], case_id), line)
+            else:
+                bound[case_id] = name
+        feature = anchors.get("feature")
+        declared = art.declared_fps.get(module)
+        if feature is not None and declared and feature not in declared:
+            ctx.add("CODE_FEATURE_ANCHOR_UNKNOWN", rel, "函数 %s 的 @feature %s 未在模块 %s 的草稿或计划矩阵中登记" % (name, feature, module), line)
+
+
+def index_cases(ctx, art):
+    """静默建立用例索引（不报告规格自身的问题），供 run 范围核对报告引用的用例是否存在。"""
+    ctx.muted = True
+    try:
+        for track, module in sorted(art.cases):
+            parse_cases_doc(ctx, art, track, module, art.cases[(track, module)])
+    finally:
+        ctx.muted = False
+
+
+def check_traceability(ctx, art):
+    """cases 规格 <-> plans 追溯矩阵 <-> FP 功能点 的双向一致性，并建立用例索引。"""
+    ctx.enter("用例追溯")
+    for track, module in sorted(art.cases):
+        parse_cases_doc(ctx, art, track, module, art.cases[(track, module)])
+    for module in sorted({module for _, module in art.cases}):
+        check_module_matrix(ctx, art, module)
+
+
+def check_code_anchors(ctx, art):
+    """测试代码锚点回指 cases 规格，且每个需生成代码的用例都有测试函数绑定。"""
+    ctx.enter("代码锚点")
+    bound = {}
+    for track, index in (("u", art.unit_code), ("b", art.bench_code)):
+        for module in sorted(index):
+            for rel in index[module]:
+                check_code_file(ctx, art, rel, track, module, bound)
+    for cid, case in sorted(art.cases_by_id.items()):
+        if cid not in bound and requires_code(case.status):
+            ctx.add("CASE_WITHOUT_TEST_CODE", case.path, "用例 %s（%s）没有任何测试函数通过 @case 绑定" % (cid, case.status or "active"), case.line)
+
+
+def check_manifest_module(ctx, art, module, entry):
+    """核对 manifest.modules 中单个模块条目的结构、路径、case_ids 与受管文件哈希。"""
+    where = "tests/.state/manifest.json#modules.%s" % module
+
+    def bad(field, expect):
+        ctx.add("MANIFEST_MODULE_INVALID", where, "%s 应为 %s" % (field, expect))
+
+    if not isinstance(entry, dict):
+        bad("模块条目", "对象")
+        return
+    paths = []
+    for field in ("draft", "plan", "unit_cases_doc", "benchmark_cases_doc"):
+        paths.append((field, entry.get(field)))
+    fixtures = entry.get("fixtures", [])
+    if not isinstance(fixtures, list):
+        fixtures = [fixtures]
+    paths.extend(("fixtures", path) for path in fixtures if path is not None)
+    for field, path in paths:
+        if not isinstance(path, str) or not path or os.path.isabs(path):
+            bad(field, "相对目标工程根目录的路径字符串")
+        elif not ctx.target.is_file(path):
+            ctx.add("MANIFEST_FILE_MISSING", where, "%s 指向的文件不存在: %s" % (field, path))
+    for track, key in (("u", "unit_code"), ("b", "benchmark_code")):
+        active = {cid for cid, case in art.cases_by_id.items()
+                  if case.module == module and case.track == track and requires_code(case.status)}
+        code = entry.get(key)
+        if code is None:
+            if active:
+                bad(key, "对象；该模块存在需生成代码的用例")
+            continue
+        if not isinstance(code, dict):
+            bad(key, "对象")
+            continue
+        path, digest, case_ids = code.get("path"), code.get("sha256"), code.get("case_ids")
+        if not isinstance(path, str) or not path or os.path.isabs(path):
+            bad(key + ".path", "相对目标工程根目录的路径字符串")
+            path = None
+        elif not ctx.target.is_file(path):
+            ctx.add("MANIFEST_FILE_MISSING", where, "%s.path 指向的文件不存在: %s" % (key, path))
+            path = None
+        if not isinstance(digest, str) or not SHA256_RE.match(digest):
+            bad(key + ".sha256", "64 位十六进制的 SHA-256")
+            digest = None
+        if isinstance(case_ids, list) and all(isinstance(item, str) for item in case_ids):
+            if set(case_ids) != active:
+                ctx.add("MANIFEST_CASE_IDS_MISMATCH", where, "%s.case_ids 与 cases 文档中需生成代码的用例不一致：仅 manifest 有 %s；仅 cases 有 %s" % (key, sorted(set(case_ids) - active) or "无", sorted(active - set(case_ids)) or "无"))
+        else:
+            bad(key + ".case_ids", "字符串数组")
+        if path is not None and digest is not None and ctx.target.sha256(path).lower() != digest.lower():
+            # 受管文件与记录不一致视为人工修改：只告警，不阻断（增量 create 会先快照再更新）。
+            ctx.add("MANIFEST_HASH_MISMATCH", path, "受管文件 SHA-256 与 manifest 记录不一致")
+
+
+def check_manifest(ctx, art):
+    """manifest.json 字段与 01 协议一致，modules[].case_ids 与 cases 文档一致。"""
+    ctx.enter("manifest")
+    rel = "tests/.state/manifest.json"
+    if not ctx.target.is_file(rel):
+        ctx.add("MANIFEST_MISSING", rel, "tests/.state/manifest.json 不存在")
+        return
+    data, error = ctx.target.load_json(rel)
+    if error:
+        ctx.add("MANIFEST_INVALID_JSON", rel, error)
+        return
+
+    def invalid(field, expect):
+        ctx.add("MANIFEST_FIELD_INVALID", rel, "字段 %s 应为 %s" % (field, expect))
+
+    required = ("schema_version", "skill_version", "create_status", "completed_stage",
+                "created_at", "updated_at", "stack", "backup_ref", "sources", "modules")
+    missing = [field for field in required if field not in data]
+    for field in missing:
+        ctx.add("MANIFEST_FIELD_MISSING", rel, "缺少协议必填字段 %s" % field)
+    if missing:
+        return
+    if data["schema_version"] != MANIFEST_SCHEMA:
+        invalid("schema_version", '"%s"' % MANIFEST_SCHEMA)
+    if not (isinstance(data["skill_version"], str) and SEMVER_RE.match(data["skill_version"])):
+        invalid("skill_version", "语义化版本字符串")
+    if data["create_status"] not in ("in_progress", "complete"):
+        invalid("create_status", "in_progress 或 complete")
+    stage = data["completed_stage"]
+    if not is_int(stage) or not 0 <= stage <= 4:
+        invalid("completed_stage", "0–4 的整数")
+    elif data["create_status"] == "complete" and stage != 4:
+        invalid("completed_stage", "create_status 为 complete 时等于 4")
+    for field in ("created_at", "updated_at"):
+        if not is_iso8601(data[field]):
+            invalid(field, "ISO-8601 时间戳")
+    stack = data["stack"]
+    if not isinstance(stack, dict):
+        invalid("stack", "对象")
+    else:
+        for key in ("language", "unit_runner", "benchmark_runner"):
+            if not isinstance(stack.get(key), str):
+                invalid("stack.%s" % key, "字符串")
+    if data["backup_ref"] is not None and not isinstance(data["backup_ref"], str):
+        invalid("backup_ref", "路径字符串或 null")
+    if not isinstance(data["sources"], dict):
+        invalid("sources", "对象")
+    else:
+        for source, meta in sorted(data["sources"].items()):
+            if not isinstance(meta, dict) or not (isinstance(meta.get("sha256"), str) and SHA256_RE.match(meta["sha256"])):
+                invalid("sources[%s]" % source, "含 64 位十六进制 sha256 的对象")
+    modules = data["modules"]
+    if not isinstance(modules, dict):
+        invalid("modules", "以模块名为键的对象")
+        return
+    for module in sorted(modules):
+        check_manifest_module(ctx, art, module, modules[module])
+    on_disk = {module for _, module in art.cases}
+    for module in sorted(on_disk - set(modules)):
+        ctx.add("MANIFEST_MODULE_UNREGISTERED", rel, "模块 %s 在 cases/ 有规格但未登记到 manifest.modules" % module)
+    for module in sorted(set(modules) - on_disk):
+        ctx.add("MANIFEST_MODULE_UNREGISTERED", rel, "manifest.modules 登记了没有 cases 规格的模块 %s" % module)
+
+
+# ---- 覆盖率解析（--coverage 模式；--scope run 也用它复核 last_run.json） ----
+Uncovered = collections.namedtuple("Uncovered", "module file symbol kind lines start")
+
+
+def ratio_pct(part, whole):
+    """百分比，保留两位小数；整体为 0 时无从度量，记 N/A 而不是 0。"""
+    return round(part * 100.0 / whole, 2) if whole else "N/A"
+
+
+def span(start, end):
+    return str(start) if start == end else "%d-%d" % (start, end)
+
+
+def module_of(rel):
+    """源码文件所属的模块名：取文件名（不含扩展名）；Python 包的 __init__.py 取所在目录名。"""
+    stem = os.path.splitext(os.path.basename(rel))[0]
+    if stem == "__init__":
+        parts = rel.rstrip("/").split("/")
+        if len(parts) > 1:
+            return parts[-2]
+    return stem
+
+
+def relative_to_target(target, path):
+    """把原始文件里记录的路径换算为目标工程根目录的相对路径；做不到时原样返回。"""
+    path = path.replace("\\", "/")
+    if os.path.isabs(path):
+        try:
+            path = os.path.relpath(path, target.root)
+        except ValueError:  # Windows 上跨盘符
+            return path
+    return os.path.normpath(path).replace(os.sep, "/")
+
+
+def import_path_to_file(target, name):
+    """Go coverprofile 以导入路径记录文件：逐级去掉前缀，直到在目标工程中找到该文件。"""
+    parts = name.replace("\\", "/").split("/")
+    for index in range(len(parts)):
+        candidate = "/".join(parts[index:])
+        if target.is_file(candidate):
+            return candidate
+    return name
+
+
+def is_business_source(rel):
+    return not rel.startswith(NON_SOURCE_PREFIXES) and not rel.startswith("..")
+
+
+class _PythonSymbols(ast.NodeVisitor):
+    """收集 Python 源码里函数的 (起始行, 结束行, 限定名) 区间。"""
+
+    def __init__(self):
+        self.ranges = []
+        self.names = []
+
+    def visit_ClassDef(self, node):
+        self.names.append(node.name)
+        self.generic_visit(node)
+        self.names.pop()
+
+    def visit_FunctionDef(self, node):
+        self.names.append(node.name)
+        self.ranges.append((node.lineno, node.end_lineno, ".".join(self.names)))
+        self.generic_visit(node)
+        self.names.pop()
+
+    visit_AsyncFunctionDef = visit_FunctionDef
+
+
+def source_symbols(target, rel):
+    """读取源码并返回符号区间 [(起始行, 结束行, 限定名)]；读不到或语法非法时为空。"""
+    try:
+        text = target.read(rel)
+    except Unreadable:
+        return []
+    if rel.endswith(".py"):
+        try:
+            visitor = _PythonSymbols()
+            visitor.visit(ast.parse(text))
+        except (SyntaxError, ValueError, RecursionError):
+            return []
+        return visitor.ranges
+    if rel.endswith(".go"):
+        lines = text.splitlines()
+        found = []
+        for number, raw in enumerate(lines, 1):
+            match = GO_FUNC_RE.match(raw)
+            if match:
+                found.append([number, len(lines), ".".join(name for name in match.groups() if name)])
+        for current, following in zip(found, found[1:]):
+            current[1] = following[0] - 1
+        return [tuple(item) for item in found]
+    return []
+
+
+def symbol_at(ranges, line):
+    """包含 line 的最内层符号；不在任何符号区间内时为 <module>。"""
+    best = None
+    for start, end, name in ranges:
+        if start <= line <= end and (best is None or start >= best[0]):
+            best = (start, name)
+    return best[1] if best else "<module>"
+
+
+def line_groups(numbers, symbols):
+    """把未覆盖行折叠为连续区间并映射到所在符号：[(符号, 起, 止)]。"""
+    groups = []
+    for number in sorted(set(numbers)):
+        name = symbol_at(symbols, number)
+        if groups and groups[-1][0] == name and groups[-1][2] == number - 1:
+            groups[-1][2] = number
+        else:
+            groups.append([name, number, number])
+    return groups
+
+
+def add_stats(stats, module, statements, covered, branches, covered_branches):
+    bucket = stats.setdefault(module, [0, 0, 0, 0])
+    for index, value in enumerate((statements, covered, branches, covered_branches)):
+        bucket[index] += value
+
+
+def parse_coverage_json(text, target):
+    """coverage.py 的 JSON 导出：按文件读取 summary、未覆盖行与未覆盖分支弧。"""
+    try:
+        data = json.loads(text)
+    except ValueError as exc:
+        raise ValueError("不是合法的 JSON: %s" % exc)
+    files = data.get("files") if isinstance(data, dict) else None
+    if not isinstance(files, dict):
+        raise ValueError("不是 coverage.py 的 JSON 导出（缺少 files）")
+    stats, entries = {}, []
+    for name, info in sorted(files.items()):
+        rel = relative_to_target(target, name)
+        if not is_business_source(rel):
+            continue  # 只统计目标工程业务源码，排除 tests/ 自身
+        summary = info.get("summary") if isinstance(info, dict) else None
+        keys = ("num_statements", "covered_lines", "num_branches", "covered_branches")
+        if not isinstance(summary, dict) or not all(is_count(summary.get(key)) for key in keys):
+            raise ValueError("文件 %s 的 summary 不完整" % name)
+        module = module_of(rel)
+        add_stats(stats, module, *(summary[key] for key in keys))
+        symbols = source_symbols(target, rel)
+        missing = [number for number in info.get("missing_lines") or [] if is_int(number)]
+        for symbol, start, end in line_groups(missing, symbols):
+            entries.append(Uncovered(module, rel, symbol, "line", span(start, end), start))
+        for arc in info.get("missing_branches") or []:
+            if isinstance(arc, (list, tuple)) and len(arc) == 2 and is_int(arc[0]):
+                entries.append(Uncovered(module, rel, symbol_at(symbols, arc[0]), "branch",
+                                         "%s->%s" % (arc[0], arc[1]), arc[0]))
+    return stats, entries
+
+
+def parse_lcov(text, target):
+    """LCOV：SF/FN/DA/BRDA 记录；统计量由 DA 与 BRDA 重新计数，不依赖汇总行。"""
+    stats, entries = {}, []
+
+    def consume(record):
+        rel = relative_to_target(target, record["file"])
+        if not is_business_source(rel):
+            return
+        module = module_of(rel)
+        covered_branches = sum(1 for _, taken, _ in record["branches"] if taken)
+        add_stats(stats, module, len(record["lines"]),
+                  sum(1 for count in record["lines"].values() if count > 0),
+                  len(record["branches"]), covered_branches)
+        functions = sorted(record["functions"])
+        last = max(record["lines"], default=0)
+        # 函数区间：FN 可写成“起始行,函数名”或“起始行,结束行,函数名”，没有结束行时取到下一个函数之前。
+        symbols = [(start, end or (functions[index + 1][0] - 1 if index + 1 < len(functions) else last), name)
+                   for index, (start, end, name) in enumerate(functions)]
+        for symbol, start, end in line_groups(
+                [line for line, count in record["lines"].items() if count == 0], symbols):
+            entries.append(Uncovered(module, rel, symbol, "line", span(start, end), start))
+        for number, taken, label in record["branches"]:
+            if not taken:
+                # LCOV 的分支说明里若带目标行（如 coverage.py 的 jump to line N），还原为与 coverage JSON 相同的“起->止”。
+                jump = re.search(r"jump to line (\d+)", label)
+                lines = "%d->%s" % (number, jump.group(1)) if jump else str(number)
+                entries.append(Uncovered(module, rel, symbol_at(symbols, number), "branch", lines, number))
+
+    record = None
+    for raw in text.splitlines():
+        line = raw.strip()
+        if line.startswith("SF:"):
+            record = {"file": line[3:], "functions": [], "lines": {}, "branches": []}
+            continue
+        if record is None:
+            continue
+        if line.startswith("FN:"):
+            parts = line[3:].split(",")
+            if len(parts) >= 3 and parts[0].isdigit() and parts[1].isdigit():
+                record["functions"].append((int(parts[0]), int(parts[1]), ",".join(parts[2:])))
+            elif len(parts) >= 2 and parts[0].isdigit():
+                record["functions"].append((int(parts[0]), None, ",".join(parts[1:])))
+        elif line.startswith("DA:"):
+            parts = line[3:].split(",")
+            if len(parts) >= 2 and parts[0].isdigit():
+                record["lines"][int(parts[0])] = int(parts[1]) if parts[1].lstrip("-").isdigit() else 0
+        elif line.startswith("BRDA:"):
+            head, _, taken = line[5:].rpartition(",")
+            parts = head.split(",", 2)  # 分支说明自身可能含空格，只按前两个逗号切
+            if len(parts) == 3 and parts[0].isdigit():
+                record["branches"].append((int(parts[0]), taken.strip() not in ("0", "-"), parts[2].strip()))
+        elif line == "end_of_record":
+            consume(record)
+            record = None
+    if record is not None:
+        consume(record)  # 容忍末条记录缺少 end_of_record
+    return stats, entries
+
+
+def parse_go_coverprofile(text, target):
+    """Go 原生 coverprofile：每个语句块一行，count 为 0 即未覆盖；没有分支信息。"""
+    stats, entries, symbols = {}, [], {}
+    for raw in text.splitlines()[1:]:
+        if not raw.strip():
+            continue
+        match = GO_BLOCK_RE.match(raw)
+        if not match:
+            raise ValueError("无法识别的 coverprofile 行: %r" % raw.strip()[:80])
+        rel = import_path_to_file(target, match.group("file"))
+        if not is_business_source(rel):
+            continue
+        module = module_of(rel)
+        statements = int(match.group("stmts"))
+        add_stats(stats, module, statements, statements if int(match.group("count")) else 0, 0, 0)
+        if int(match.group("count")):
+            continue
+        if rel not in symbols:
+            symbols[rel] = source_symbols(target, rel)
+        start, end = int(match.group("start")), int(match.group("end"))
+        entries.append(Uncovered(module, rel, symbol_at(symbols[rel], start), "block",
+                                 span(start, end), start))
+    return stats, entries
+
+
+def detect_coverage_format(text):
+    """按内容识别覆盖率原始文件的格式；只认三类，其余返回 None。"""
+    stripped = text.lstrip("\ufeff \t\r\n")
+    if not stripped:
+        return None
+    if stripped.startswith("{"):
+        return "coverage-json"
+    if re.match(r"^mode:\s*\w+\s*$", stripped.splitlines()[0]):
+        return "go-coverprofile"
+    if re.search(r"^(?:SF|DA|FN|FNDA|BRDA):", stripped, re.M) and "end_of_record" in stripped:
+        return "lcov"
+    return None
+
+
+def uncovered_entry(entry):
+    return {"module": entry.module, "file": entry.file, "symbol": entry.symbol,
+            "kind": entry.kind, "lines": entry.lines}
+
+
+def empty_coverage(status, reason):
+    """没有任何可报告数值的 coverage 对象：未测得的字段一律 N/A。"""
+    return {"status": status, "reason": reason, "tool": None, "format": None,
+            "line_pct": "N/A", "branch_pct": "N/A", "raw": [], "modules": {},
+            "uncovered": [], "uncovered_omitted": {}}
+
+
+def build_coverage(fmt, stats, entries, raw):
+    """把逐文件的统计与未覆盖条目规整为 coverage 协议对象；每个模块最多保留 50 条。"""
+    statements, covered, branches, covered_branches = (sum(bucket[index] for bucket in stats.values())
+                                                        for index in range(4))
+    if not statements and not branches:
+        return empty_coverage("unavailable", "覆盖率原始文件中没有可统计的业务源码（已排除 tests/ 与备份区）")
+    totals = collections.Counter(entry.module for entry in entries)
+    coverage = {
+        "status": "ok", "reason": None, "tool": COVERAGE_TOOLS[fmt], "format": fmt,
+        "line_pct": ratio_pct(covered, statements),
+        "branch_pct": "N/A" if not branches else ratio_pct(covered_branches, branches),
+        "raw": [raw] if raw else [],
+        "modules": {module: {"line_pct": ratio_pct(bucket[1], bucket[0]),
+                             "branch_pct": "N/A" if not bucket[2] else ratio_pct(bucket[3], bucket[2]),
+                             "uncovered_total": totals.get(module, 0)}
+                    for module, bucket in sorted(stats.items())},
+        "uncovered": [], "uncovered_omitted": {}}
+    kept = collections.Counter()
+    for entry in sorted(entries, key=lambda item: (item.file, item.start, item.kind, item.lines)):
+        if kept[entry.module] < UNCOVERED_CAP:
+            coverage["uncovered"].append(uncovered_entry(entry))
+            kept[entry.module] += 1
+    coverage["uncovered_omitted"] = {module: total - UNCOVERED_CAP
+                                     for module, total in sorted(totals.items()) if total > UNCOVERED_CAP}
+    return coverage
+
+
+def parse_coverage_file(path, target):
+    """解析一个覆盖率原始文件并规整为 coverage 协议对象。
+
+    只认三类格式：coverage.py 的 JSON 导出、LCOV、Go 原生 coverprofile；其他内容抛 ValueError。
+    """
+    try:
+        with open(path, "r", encoding="utf-8-sig") as handle:
+            text = handle.read()
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ValueError("无法读取: %s" % exc)
+    fmt = detect_coverage_format(text)
+    parsers = {"coverage-json": parse_coverage_json, "lcov": parse_lcov,
+               "go-coverprofile": parse_go_coverprofile}
+    if fmt is None:
+        raise ValueError("不是 coverage JSON、LCOV 或 Go coverprofile 三类格式之一")
+    stats, entries = parsers[fmt](text, target)
+    return build_coverage(fmt, stats, entries,
+                          relative_to_target(target, os.path.abspath(path)))
+
+
+# ---- run 范围：覆盖率状态与报告 ----
+def is_pct(value, allow_na):
+    """0–100 的数值；allow_na 为真时也接受 N/A（未测得）。"""
+    if value == "N/A":
+        return bool(allow_na)
+    return is_number(value) and 0 <= value <= 100
+
+
+def same_pct(left, right):
+    if left == "N/A" or right == "N/A":
+        return left == right
+    return is_number(left) and is_number(right) and abs(left - right) <= 0.011
+
+
+def coverage_entries(coverage):
+    """结构合法的未覆盖条目的可比较形式；结构非法的条目已由 check_coverage_state 报告。"""
+    return sorted((entry["module"], entry["file"], entry["symbol"], entry["kind"], entry["lines"])
+                  for entry in coverage["uncovered"]
+                  if isinstance(entry, dict) and set(entry) == set(UNCOVERED_KEYS)
+                  and all(isinstance(entry[key], str) for key in UNCOVERED_KEYS))
+
+
+def check_coverage_state(ctx, unit):
+    """核对 unit.coverage 的结构与诚实性；原始文件仍在时与其重新解析的结果比对。
+
+    返回通过结构核对的 coverage（status 不是 ok 时同样返回，供报告核对），否则 None。
+    """
+    ctx.enter("覆盖率")
+    rel = "tests/.state/last_run.json"
+    if not isinstance(unit, dict):
+        return None
+    if "coverage" not in unit:
+        ctx.add("COVERAGE_FIELD_MISSING", rel, "unit 缺少 coverage 字段")
+        return None
+    coverage = unit["coverage"]
+    if not isinstance(coverage, dict):
+        ctx.add("COVERAGE_FIELD_INVALID", rel, "unit.coverage 须为对象")
+        return None
+
+    def invalid(message):
+        ctx.add("COVERAGE_FIELD_INVALID", rel, message)
+
+    missing = [key for key in COVERAGE_KEYS if key not in coverage]
+    for key in missing:
+        ctx.add("COVERAGE_FIELD_MISSING", rel, "unit.coverage 缺少协议必填字段 %s" % key)
+    status = coverage.get("status")
+    if missing:
+        return None
+    if status not in COVERAGE_STATUSES:
+        invalid("coverage.status 应为 %s 之一，实际为 %r" % (" / ".join(COVERAGE_STATUSES), status))
+        return None
+    if (status == "not_run") != (unit.get("status") == "not_run"):
+        invalid("coverage.status 为 %s，与单测轨状态 %r 不一致：只有单测轨 not_run 时覆盖率才是 not_run"
+                % (status, unit.get("status")))
+    if status != "ok":
+        # 未测得就必须是 N/A：缺工具、不支持或未执行时出现任何数值都属于伪造。
+        if not (isinstance(coverage["reason"], str) and coverage["reason"].strip()):
+            ctx.add("COVERAGE_UNAVAILABLE_WITHOUT_REASON", rel, "coverage.status 为 %s，却没有说明原因" % status)
+        for key in ("line_pct", "branch_pct"):
+            if coverage[key] != "N/A":
+                ctx.add("COVERAGE_VALUE_WITHOUT_EVIDENCE", rel, "coverage.status 为 %s，%s 却写成 %r；未测得必须写 N/A，不得填 0 或数值" % (status, key, coverage[key]))
+        if coverage["uncovered"] or coverage["uncovered_omitted"] or coverage["modules"]:
+            invalid("覆盖率不可用时 uncovered、uncovered_omitted 与 modules 应为空")
+        return coverage
+
+    if coverage["reason"] is not None:
+        invalid("coverage.status 为 ok 时 reason 应为 null")
+    if not (isinstance(coverage["tool"], str) and coverage["tool"].strip()):
+        invalid("coverage.tool 应为非空的工具名称")
+    if coverage["format"] not in COVERAGE_FORMATS:
+        invalid("coverage.format 应为 %s 之一，实际为 %r" % (" / ".join(COVERAGE_FORMATS), coverage["format"]))
+        return coverage
+    for key, allow_na in (("line_pct", False), ("branch_pct", True)):
+        if not is_pct(coverage[key], allow_na):
+            invalid("coverage.%s 应为 0–100 的数值%s，实际为 %r" % (key, "或 N/A" if allow_na else "", coverage[key]))
+    if coverage["format"] == "go-coverprofile" and coverage["branch_pct"] != "N/A":
+        invalid("Go 只有语句块级覆盖，coverage.branch_pct 必须为 N/A")
+    if not (isinstance(coverage["raw"], list) and all(isinstance(item, str) for item in coverage["raw"])):
+        invalid("coverage.raw 应为原始文件路径的数组")
+
+    modules = coverage["modules"]
+    if not isinstance(modules, dict):
+        invalid("coverage.modules 应为以模块名为键的对象")
+        modules = {}
+    for module, summary in sorted(modules.items()):
+        if not (isinstance(summary, dict) and is_pct(summary.get("line_pct"), True)
+                and is_pct(summary.get("branch_pct"), True) and is_count(summary.get("uncovered_total"))):
+            invalid("coverage.modules[%s] 应为含 line_pct、branch_pct 与 uncovered_total 的对象" % module)
+    uncovered = coverage["uncovered"]
+    if not isinstance(uncovered, list):
+        invalid("coverage.uncovered 应为数组")
+        uncovered = []
+    counts = collections.Counter()
+    for entry in uncovered:
+        shaped = (isinstance(entry, dict) and set(entry) == set(UNCOVERED_KEYS)
+                  and entry["kind"] in UNCOVERED_KINDS
+                  and all(isinstance(entry[key], str) for key in UNCOVERED_KEYS)
+                  and all(entry[key] for key in ("module", "file", "lines")))
+        if not shaped:
+            invalid("coverage.uncovered 中的条目应含 module、file、symbol、kind、lines 五个字符串字段")
+        else:
+            counts[entry["module"]] += 1
+    for module, count in sorted(counts.items()):
+        if count > UNCOVERED_CAP:
+            ctx.add("COVERAGE_UNCOVERED_OVER_CAP", rel, "模块 %s 的未覆盖条目有 %d 条，超过上限 %d" % (module, count, UNCOVERED_CAP))
+    omitted = coverage["uncovered_omitted"]
+    if not (isinstance(omitted, dict) and all(is_count(value) for value in omitted.values())):
+        invalid("coverage.uncovered_omitted 应为以模块名为键、省略条数为值的对象")
+        omitted = {}
+    for module in sorted(set(omitted) | set(counts)):
+        extra = omitted.get(module, 0)
+        if extra and counts.get(module, 0) != UNCOVERED_CAP:
+            invalid("coverage.uncovered_omitted[%s] 登记了省略 %d 条，但 uncovered 中该模块只有 %d 条" % (module, extra, counts.get(module, 0)))
+        if isinstance(modules.get(module), dict) and modules[module].get("uncovered_total") != counts.get(module, 0) + extra:
+            invalid("coverage.modules[%s].uncovered_total 应为 %d（保留 %d 条加省略 %d 条）" % (module, counts.get(module, 0) + extra, counts.get(module, 0), extra))
+
+    # 原始文件仍在运行期临时区时，重新解析并逐项比对，防止手工估算或抄错。
+    for raw in coverage["raw"]:
+        if not ctx.target.is_file(raw):
+            continue
+        try:
+            parsed = parse_coverage_file(ctx.target.path(raw), ctx.target)
+        except ValueError as exc:
+            ctx.add("COVERAGE_RAW_UNREADABLE", raw, str(exc))
+            continue
+        same = (parsed["status"] == "ok" and parsed["format"] == coverage["format"]
+                and same_pct(parsed["line_pct"], coverage["line_pct"])
+                and same_pct(parsed["branch_pct"], coverage["branch_pct"])
+                and coverage_entries(parsed) == coverage_entries(coverage)
+                and {module: summary["uncovered_total"] for module, summary in parsed["modules"].items()}
+                == {module: summary["uncovered_total"] for module, summary in modules.items() if isinstance(summary, dict)})
+        if not same:
+            ctx.add("COVERAGE_RAW_MISMATCH", raw, "按原始文件重新解析（%s，行覆盖 %s，分支覆盖 %s，未覆盖 %d 条）与 last_run.json 记录的结果不一致" % (parsed["format"], parsed["line_pct"], parsed["branch_pct"], len(parsed["uncovered"]) + sum(parsed["uncovered_omitted"].values())))
+    return coverage
+
+
+def h2_section(text, number):
+    """Markdown 文档中“## <number>. …”小节的正文；没有该小节返回 None。"""
+    heading = re.search(r"(?m)^## %d\. .*$" % number, text)
+    if not heading:
+        return None
+    following = re.search(r"(?m)^## ", text[heading.end():])
+    return text[heading.end():heading.end() + following.start()] if following else text[heading.end():]
+
+
+def table_rows(section):
+    """小节内的表格行 [[单元格…]]，分隔线已剔除；首行为表头。"""
+    rows = []
+    for raw in section.splitlines():
+        if raw.lstrip().startswith("|"):
+            cells = split_table_row(raw)
+            if not is_separator(cells):
+                rows.append(cells)
+    return rows
+
+
+def cell_pct(cell):
+    """从报告单元格取回覆盖率：`76.92%` 得 76.92，`N/A` 得 "N/A"；无法识别得 None。"""
+    text = cell.strip().strip("`").strip()
+    match = re.fullmatch(r"(\d+(?:\.\d+)?)\s*%", text)
+    return round(float(match.group(1)), 2) if match else ("N/A" if text == "N/A" else None)
+
+
+def column_of(rows, title):
+    """(表头行号, 列号)：首个含 title 单元格的行及其列；找不到返回 (None, None)。"""
+    for position, row in enumerate(rows):
+        for column, cell in enumerate(row):
+            if title in cell:
+                return position, column
+    return None, None
+
+
+def check_coverage_reports(ctx, coverage, produced):
+    """u_report 第 1 节统计表、第 4 节与 all_report 覆盖率列须与 last_run.json 的 coverage 一致。"""
+    ctx.enter("覆盖率")
+    if coverage is None:
+        return
+    measured = coverage["status"] == "ok"
+    modules = coverage["modules"] if isinstance(coverage["modules"], dict) else {}
+    uncovered = coverage["uncovered"] if isinstance(coverage["uncovered"], list) else []
+    if "unit" in produced:
+        rel = "%s/%s" % (REPORT_DIR, REPORT_FILES["unit"])
+        text = ctx.target.read(rel)
+        rows = table_rows(h2_section(text, 1) or "")
+        for title, value in (("行覆盖率", coverage["line_pct"]), ("分支覆盖率", coverage["branch_pct"])):
+            expected = "N/A" if not measured or value == "N/A" else round(value, 2)
+            position, column = column_of(rows, title)
+            data = rows[position + 1] if position is not None and position + 1 < len(rows) else []
+            actual = cell_pct(data[column]) if column is not None and column < len(data) else None
+            if actual is None or actual != expected:
+                ctx.add("COVERAGE_REPORT_MISMATCH", rel, "第 1 节统计表缺少“%s”列，或其值与 last_run.json 记录的 %r 不一致" % (title, expected))
+        section = h2_section(text, 4)
+        titled = re.search(r"(?m)^%s\s*$" % re.escape(COVERAGE_SECTION), text) is not None
+        if section is None or not titled:
+            ctx.add("COVERAGE_REPORT_MISMATCH", rel, "缺少“%s”小节" % COVERAGE_SECTION)
+        elif measured and len(table_rows(section)[1:]) != len(uncovered):
+            listed = len(table_rows(section)[1:])
+            ctx.add("COVERAGE_REPORT_MISMATCH", rel, "第 4 节列出 %d 条未覆盖符号，与 last_run.json 的 %d 条不一致" % (listed, len(uncovered)))
+    if "all" in produced:
+        rel = "%s/%s" % (REPORT_DIR, REPORT_FILES["all"])
+        rows = table_rows(h2_section(ctx.target.read(rel), 2) or "")
+        position, column = column_of(rows, "行覆盖率")
+        if position is None:
+            ctx.add("COVERAGE_REPORT_MISMATCH", rel, "第 2 节模块健康度矩阵缺少“行覆盖率”列")
+            return
+        for row in rows[position + 1:]:
+            module = row[0].strip("` ")
+            summary = modules.get(module)
+            expected = "N/A" if not measured or not isinstance(summary, dict) or summary.get("line_pct") == "N/A" \
+                else round(summary["line_pct"], 2)
+            actual = cell_pct(row[column]) if column < len(row) else None
+            if actual is None or actual != expected:
+                ctx.add("COVERAGE_REPORT_MISMATCH", rel, "模块健康度矩阵中模块 %s 的行覆盖率与 last_run.json 记录的 %r 不一致" % (module, expected))
+
+
+# ---- run 范围：last_run.json 与报告 ----
+def check_track(ctx, rel, name, summary, statuses, fields):
+    """核对单轨执行摘要的字段完整性；字段有效时返回摘要，否则 None。"""
+    if not isinstance(summary, dict):
+        ctx.add("LAST_RUN_FIELD_INVALID", rel, "%s 须为对象" % name)
+        return None
+    missing = [key for key in fields if key not in summary]
+    for key in missing:
+        ctx.add("LAST_RUN_FIELD_MISSING", rel, "%s 缺少协议必填字段 %s" % (name, key))
+    if missing:
+        return None
+
+    def invalid(field, expect):
+        ctx.add("LAST_RUN_FIELD_INVALID", rel, "%s.%s 应为 %s" % (name, field, expect))
+
+    valid = True
+    if summary["status"] not in statuses:
+        invalid("status", " / ".join(statuses))
+        valid = False
+    if not isinstance(summary["command"], str):
+        invalid("command", "命令字符串")
+    if summary["exit_code"] is not None and not is_int(summary["exit_code"]):
+        invalid("exit_code", "整数或 null")
+    if not is_duration(summary["duration_ms"]):
+        invalid("duration_ms", "非负数")
+    for key in ("total", "passed", "failed", "skipped"):
+        if key in fields and not is_count(summary[key]):
+            invalid(key, "非负整数")
+            valid = False  # 计数不是整数时，后续的状态证据核对无法安全比较
+    if "metrics_summary" in fields and not isinstance(summary["metrics_summary"], dict):
+        invalid("metrics_summary", "对象")
+    if not isinstance(summary["report"], str):
+        invalid("report", "报告路径字符串")
+    return summary if valid else None
+
+
+def check_run_state(ctx):
+    """last_run.json 字段完整、状态与证据不矛盾、scope 与轨道一致；返回 run_id / scope / 轨道状态。"""
+    ctx.enter("运行状态")
+    rel = "tests/.state/last_run.json"
+    if not ctx.target.is_file(rel):
+        ctx.add("LAST_RUN_MISSING", rel, "tests/.state/last_run.json 不存在")
+        return None
+    data, error = ctx.target.load_json(rel)
+    if error:
+        ctx.add("LAST_RUN_INVALID_JSON", rel, error)
+        return None
+
+    def invalid(field, expect):
+        ctx.add("LAST_RUN_FIELD_INVALID", rel, "字段 %s 应为 %s" % (field, expect))
+
+    missing = [key for key in ("run_id", "scope", "executed_at", "unit", "benchmark", "summary_report")
+               if key not in data]
+    for key in missing:
+        ctx.add("LAST_RUN_FIELD_MISSING", rel, "缺少协议必填字段 %s" % key)
+    if missing:
+        return None
+    if not (isinstance(data["run_id"], str) and RUN_ID_RE.match(data["run_id"])):
+        invalid("run_id", "YYYYMMDD_HHMMSS")
+    if data["scope"] not in SCOPE_REPORTS:
+        invalid("scope", "all / unittest / benchmark")
+    if not is_iso8601(data["executed_at"]):
+        invalid("executed_at", "ISO-8601 时间戳")
+    unit = check_track(ctx, rel, "unit", data["unit"], UNIT_STATUSES, UNIT_FIELDS)
+    bench = check_track(ctx, rel, "benchmark", data["benchmark"], BENCH_STATUSES, BENCH_FIELDS)
+    for track, name in ((unit, "unit"), (bench, "benchmark")):
+        if track and track["report"] != "%s/%s" % (REPORT_DIR, REPORT_FILES[name]):
+            ctx.add("RUN_REPORT_PATH_INVALID", rel, "%s.report 应为 %s" % (name, REPORT_FILES[name]))
+    if data["summary_report"] is not None and data["summary_report"] != "%s/%s" % (REPORT_DIR, REPORT_FILES["all"]):
+        ctx.add("RUN_REPORT_PATH_INVALID", rel, "summary_report 应为 %s 或 null" % REPORT_FILES["all"])
+
+    # 诚实报告：passed / completed 必须有退出码与用例计数作为证据。
+    if unit:
+        if unit["status"] == "passed" and not (unit["exit_code"] == 0 and unit["failed"] == 0 and unit["passed"] >= 1):
+            ctx.add("LAST_RUN_STATUS_EVIDENCE_CONFLICT", rel, "unit 为 passed，但未同时满足退出码 0、失败 0、至少 1 条通过")
+        elif unit["status"] == "failed" and unit["failed"] < 1:
+            ctx.add("LAST_RUN_STATUS_EVIDENCE_CONFLICT", rel, "unit 为 failed，但失败计数为 0")
+    if bench and bench["status"] == "completed" and not (bench["exit_code"] == 0 and bench["total"] >= 1):
+        ctx.add("LAST_RUN_STATUS_EVIDENCE_CONFLICT", rel, "benchmark 为 completed，但未同时满足退出码 0、至少 1 条基准产出指标")
+
+    if unit and bench and data["scope"] in SCOPE_REPORTS:
+        in_scope = SCOPE_REPORTS[data["scope"]]
+        for track, name in ((unit, "unit"), (bench, "benchmark")):
+            if (name in in_scope) != (track["status"] != "not_run"):
+                ctx.add("RUN_TRACK_SCOPE_MISMATCH", rel, "scope 为 %s，%s 轨道状态却为 %s" % (data["scope"], name, track["status"]))
+    if unit is None or bench is None or data["scope"] not in SCOPE_REPORTS:
+        return None
+    return {"run_id": data["run_id"], "scope": data["scope"],
+            "unit": unit["status"], "benchmark": bench["status"],
+            "coverage": check_coverage_state(ctx, unit)}
+
+
+def read_report_header(ctx, rel, kind):
+    """读取报告第 3 行的单行页眉并核对格式；不合法时返回 None。"""
+    lines = ctx.target.read(rel).splitlines()
+    match = REPORT_HEADER_RE.match(lines[2].strip()) if len(lines) > 2 else None
+    if match is None or not lines[0].startswith("# ") or lines[1].strip():
+        ctx.add("REPORT_HEADER_INVALID", rel, "H1 标题、空行之后须紧跟单行引用块元数据页眉", 3)
+        return None
+    if (match.group("module"), match.group("type")) != ("global", REPORT_TYPES[kind]):
+        ctx.add("REPORT_HEADER_INVALID", rel, "页眉 module/type 应为 global / %s，实际为 %s / %s" % (REPORT_TYPES[kind], match.group("module"), match.group("type")), 3)
+        return None
+    if match.group("status") not in REPORT_STATUSES[kind]:
+        ctx.add("REPORT_HEADER_INVALID", rel, "页眉 status %r 不属于 %s" % (match.group("status"), " / ".join(REPORT_STATUSES[kind])), 3)
+        return None
+    return Header(match.group("module"), match.group("type"), match.group("run_id"), match.group("status"))
+
+
+def check_reports(ctx, art, last_run):
+    """报告页眉与 last_run.json 一致、报告集合与 scope 匹配、明细用例存在于 cases 规格。
+
+    reports/ 的目录条目契约由 scan_reports 负责；这里只读取三份 *_latest.md。
+    """
+    current = {}
+    ctx.enter("报告页眉")
+    for kind, name in sorted(REPORT_FILES.items()):
+        rel = "%s/%s" % (REPORT_DIR, name)
+        if ctx.target.is_file(rel):
+            header = read_report_header(ctx, rel, kind)
+            if header is not None:
+                current[kind] = (rel, header)
+    if last_run is None:
+        return
+    ctx.enter("报告集合")
+    expected = set(SCOPE_REPORTS[last_run["scope"]])
+    produced = {kind for kind, (_, header) in current.items() if header.run_id == last_run["run_id"]}
+    for kind in sorted(expected - produced):
+        ctx.add("RUN_SCOPE_REPORT_MISMATCH", "%s/%s" % (REPORT_DIR, REPORT_FILES[kind]), "scope 为 %s，但缺少本次 run_id %s 的报告" % (last_run["scope"], last_run["run_id"]))
+    for kind in sorted(produced - expected):
+        ctx.add("RUN_SCOPE_REPORT_MISMATCH", current[kind][0], "scope 为 %s，不应产出带本次 run_id 的该报告" % last_run["scope"])
+    ctx.enter("报告页眉")
+    statuses = {"unit": last_run["unit"], "benchmark": last_run["benchmark"],
+                "all": worst_status(last_run["unit"], last_run["benchmark"])}
+    for kind in sorted(produced):
+        rel, header = current[kind]
+        if header.status != statuses[kind]:
+            ctx.add("REPORT_STATUS_MISMATCH", rel, "页眉状态 %s 与 last_run.json 的轨道状态 %s 不一致" % (header.status, statuses[kind]), 3)
+    ctx.enter("报告用例")
+    for kind in sorted(produced):
+        rel, _ = current[kind]
+        text = ctx.target.read(rel)
+        for match in ID_LOOSE_RE.finditer(text):
+            if match.group(0) not in art.cases_by_id:
+                ctx.add("REPORT_CASE_UNKNOWN", rel, "报告引用了 cases 文档中不存在的用例 %s" % match.group(0), line_number(text, match.start()))
+    check_coverage_reports(ctx, last_run.get("coverage"), produced)
+
+
+def verify(ctx):
+    art = Artifacts()
+    if not scan_target(ctx, art):
+        return
+    if "create" in ctx.scopes:
+        check_traceability(ctx, art)
+        check_code_anchors(ctx, art)
+        check_manifest(ctx, art)
+    else:
+        index_cases(ctx, art)
+    if "run" in ctx.scopes:
+        check_reports(ctx, art, check_run_state(ctx))
+
+
+# ---- 报告 ----
+def code_counts(findings):
+    """按诊断码汇总各级别计数，供 --json summary.codes 使用。"""
+    counts = {}
+    for finding in findings:
+        bucket = counts.setdefault(finding["code"], {})
+        bucket[finding["severity"]] = bucket.get(finding["severity"], 0) + 1
+    return {code: dict(sorted(counts[code].items())) for code in sorted(counts)}
+
+
+def count_severity(ctx, severity):
+    return len([f for f in ctx.findings if f["severity"] == severity])
+
+
+def issue_summary(ctx, severity):
+    """某一级别的问题码汇总，如 CODE_A×2, CODE_B；没有则为“无”。"""
+    counts = collections.Counter(f["code"] for f in ctx.findings if f["severity"] == severity)
+    return ", ".join("%s×%d" % (code, count) if count > 1 else code
+                     for code, count in sorted(counts.items())) or "无"
+
+
+def disposition(ctx, code):
+    """按范围与结果给出调用方下一步：create 侧门禁语义、run 侧只报告语义。"""
+    passed, parts = code == EXIT_OK, []
+    if "create" in ctx.scopes:
+        parts.append("create 侧可在 manifest 写入 create_status: complete 与 completed_stage 4" if passed
+                     else "create 侧保持 create_status: in_progress，按 path 局部修复生成文件（最多 3 轮）后重跑，不得放宽校验或改写哈希迁就")
+    if "run" in ctx.scopes:
+        parts.append("run 侧可将本结果写入运行小结" if passed
+                     else "run 侧将上述违规原样写入运行小结，不改 passed/failed/error、用例计数与退出码")
+    if not passed:
+        parts.append("问题明细见 --json")
+    return "；".join(parts)
+
+
+def render_receipt(ctx, code, label):
+    """固定格式的产物校验回执：各行均由本次校验结果生成，只汇报 ta-verify 自身。"""
+    failed = {f["group"] for f in ctx.findings if f["severity"] == "ERROR"}
+    groups = " · ".join("%s %s" % (group, "✗" if group in failed else "✓")
+                        for group in ctx.GROUPS if group in ctx.visited)
+    return "\n".join([
+        "### ta-verify · %s · %s · Exit %d" % (label, ctx.scope, code),
+        "工具 ta-verify v%s · 范围 %s · 目标只读" % (VERSION, " + ".join(s for s in ("create", "run") if s in ctx.scopes)),
+        "",
+        "- 门禁：Exit %d · ERROR %d · WARNING %d · ADVISORY %d" % (
+            code, count_severity(ctx, "ERROR"), count_severity(ctx, "WARNING"),
+            count_severity(ctx, "ADVISORY")),
+        "- 校验项：" + groups,
+        "- 问题：ERROR %s · WARNING %s · ADVISORY %s" % (
+            issue_summary(ctx, "ERROR"), issue_summary(ctx, "WARNING"), issue_summary(ctx, "ADVISORY")),
+        "- 处置：" + disposition(ctx, code)])
+
+
+def report(ctx, as_json, receipt, label):
+    """输出结果并返回退出码：0 无 ERROR，4 存在 ERROR。"""
+    code = EXIT_VIOLATION if count_severity(ctx, "ERROR") else EXIT_OK
+    if as_json:
+        payload = {"tool": "ta-verify", "version": VERSION, "scope": ctx.scope,
+                   "target": ctx.target.root, "exit_code": code,
+                   "summary": {"errors": count_severity(ctx, "ERROR"),
+                               "warnings": count_severity(ctx, "WARNING"),
+                               "advisories": count_severity(ctx, "ADVISORY"),
+                               "codes": code_counts(ctx.findings)},
+                   "findings": ctx.findings}
+        if receipt:
+            payload["receipt"] = render_receipt(ctx, code, label)
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    elif receipt:
+        print(render_receipt(ctx, code, label), flush=True)
+        if code:
+            print("ta-verify: 普通复核 Exit %d，问题明细见 --json" % code, file=sys.stderr)
+    else:
+        print("ta-verify v%s  scope=%s  target=%s" % (VERSION, ctx.scope, ctx.target.root))
+        for finding in ctx.findings:
+            location = finding["path"] if finding["line"] is None else "%s:%d" % (finding["path"], finding["line"])
+            print("  [%s] %-30s %s: %s" % (finding["severity"], finding["code"], location, finding["message"]))
+            print("      ↳ 修复: %s" % finding["hint"])
+        print("summary: %d error(s), %d warning(s), %d advisory item(s)" % (
+            count_severity(ctx, "ERROR"), count_severity(ctx, "WARNING"), count_severity(ctx, "ADVISORY")))
+        print("exit code: %d" % code)
+    return code
+
+
+def parse_arguments(argv):
+    parser = argparse.ArgumentParser(prog="ta-verify", description="test-anything 产物校验器（只读，仅标准库）")
+    parser.add_argument("--target", default=".", help="目标工程根目录，默认当前目录")
+    parser.add_argument("--scope", choices=list(SCOPES),
+                        help="create=仅 create 产物；run=仅 run 产物；all=两者（默认）")
+    parser.add_argument("--json", action="store_true", help="JSON 输出，供 CI/Agent 消费")
+    parser.add_argument("--receipt", action="store_true",
+                        help="按固定格式输出本次产物校验回执；只汇报 ta-verify 自身结果，不是 run 的对话回执")
+    parser.add_argument("--coverage", metavar="RAW_FILE",
+                        help="只解析这一个覆盖率原始文件并输出 coverage 协议对象；与 --scope、--receipt 互斥")
+    args = parser.parse_args(argv)
+    if args.coverage and (args.scope or args.receipt):
+        parser.error("--coverage 不能与 --scope 或 --receipt 同用")
+    args.scope = args.scope or "all"
+    return args
+
+
+def main(argv=None):
+    args = parse_arguments(argv)
+    if not os.path.isdir(args.target):
+        print("ta-verify: 目标不可读，不是已存在的目录: %s" % args.target, file=sys.stderr)
+        return EXIT_USAGE
+    ctx = Ctx(Target(os.path.abspath(args.target)), args.scope)
+    try:
+        if args.coverage:
+            # 覆盖率解析只做规整、不下结论：读不了或不属于三类格式时按用法错误返回。
+            coverage = parse_coverage_file(args.coverage, ctx.target)
+            print(json.dumps(coverage, ensure_ascii=False, indent=2))
+            return EXIT_OK
+        verify(ctx)
+    except ValueError as exc:
+        print("ta-verify: 无法解析覆盖率文件: %s" % exc, file=sys.stderr)
+        return EXIT_USAGE
+    except Unreadable as exc:
+        print("ta-verify: 目标不可读: %s" % exc, file=sys.stderr)
+        return EXIT_USAGE
+    return report(ctx, args.json, args.receipt, args.target)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

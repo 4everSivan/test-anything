@@ -1,0 +1,5 @@
+[project]
+name = "textkit-sample"
+version = "0.1.0"
+description = "Golden sample project for the test-anything skill: tiny text utilities with a managed tests/ suite"
+requires-python = ">=3.8"

@@ -1,0 +1,20 @@
+{
+  "_meta": {
+    "managed_by": "test-anything",
+    "module": "slugify",
+    "used_by_cases": ["UT-slugify-001", "UT-slugify-002", "UT-slugify-003", "BM-slugify-001"]
+  },
+  "title": "Hello, World! 你好 — Test-Anything",
+  "expected_slug": "hello-world-test-anything",
+  "max_len": 6,
+  "expected_truncated_slug": "hello",
+  "invalid_max_len": 0,
+  "titles": [
+    "The Quick Brown Fox",
+    "Numbers 123 & Symbols!",
+    "你好, World",
+    "Slow & steady",
+    "ALL CAPS TITLE 42"
+  ],
+  "batch_repeats": 2000
+}

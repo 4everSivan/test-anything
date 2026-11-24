@@ -1,0 +1,3 @@
+# test-anything 契约：备份区与运行期临时目录必须被忽略。
+/_test_anything_backup/
+/tests/tmp/

@@ -1,0 +1,64 @@
+{
+  "schema_version": "1.0",
+  "skill_version": "0.1.0",
+  "create_status": "complete",
+  "completed_stage": 4,
+  "created_at": "2026-11-24T01:15:03+08:00",
+  "updated_at": "2026-11-24T01:19:58+08:00",
+  "stack": {
+    "language": "go",
+    "unit_runner": "GOCACHE=$(pwd)/tests/tmp/go-build GOTMPDIR=$(pwd)/tests/tmp go test ./tests/unit -v -count=1",
+    "benchmark_runner": "GOCACHE=$(pwd)/tests/tmp/go-build GOTMPDIR=$(pwd)/tests/tmp go test ./tests/benchmark -run '^$' -bench . -benchmem -count=1"
+  },
+  "backup_ref": null,
+  "sources": {
+    "README.md": {
+      "sha256": "55470f9963407cd23d849594cecac6ffc94191a8ce9f5f66bfddea5a6384d883"
+    },
+    "go.mod": {
+      "sha256": "54c7357cdc0d2db0abe9966669773e41f7f628ca352508805a09d5d1f9aa498f"
+    },
+    "calc/calc.go": {
+      "sha256": "6296e4c5145c6ad8f700e4aaea75d08b770b78f7b6fc255281b5f4499a69b4fb"
+    },
+    "textutil/textutil.go": {
+      "sha256": "d9f6a710e308b8c905cc2b5c05e0a26e1101a962607f86f87f9ea73cdc10e20c"
+    }
+  },
+  "modules": {
+    "calc": {
+      "draft": "tests/docs/drafts/calc_draft.md",
+      "plan": "tests/docs/plans/calc_plan.md",
+      "unit_cases_doc": "tests/docs/cases/u_calc_cases.md",
+      "benchmark_cases_doc": "tests/docs/cases/b_calc_cases.md",
+      "fixtures": "tests/fixtures/calc_fixtures.json",
+      "unit_code": {
+        "path": "tests/unit/u_calc_test.go",
+        "sha256": "97cf37b0598d20c8206a5e395a96ee924b862a4030e58a3edcd53c0d7304b09c",
+        "case_ids": ["UT-calc-001", "UT-calc-002", "UT-calc-003"]
+      },
+      "benchmark_code": {
+        "path": "tests/benchmark/b_calc_bench_test.go",
+        "sha256": "894f8cee820fad6a8aec2e93a7510c0ae304acdc0dc6fe9474cabca81b6497db",
+        "case_ids": ["BM-calc-001"]
+      }
+    },
+    "textutil": {
+      "draft": "tests/docs/drafts/textutil_draft.md",
+      "plan": "tests/docs/plans/textutil_plan.md",
+      "unit_cases_doc": "tests/docs/cases/u_textutil_cases.md",
+      "benchmark_cases_doc": "tests/docs/cases/b_textutil_cases.md",
+      "fixtures": "tests/fixtures/textutil_fixtures.json",
+      "unit_code": {
+        "path": "tests/unit/u_textutil_test.go",
+        "sha256": "38da437924290d0a0e9e13f5546a4ad889fbf93d4ec85121ba2349720b970464",
+        "case_ids": ["UT-textutil-001", "UT-textutil-002", "UT-textutil-003"]
+      },
+      "benchmark_code": {
+        "path": "tests/benchmark/b_textutil_bench_test.go",
+        "sha256": "e8411b719a265e97419ce3309379078a03a47a940867cf739233a2c48ef7ea70",
+        "case_ids": ["BM-textutil-001"]
+      }
+    }
+  }
+}

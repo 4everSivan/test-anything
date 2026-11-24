@@ -1,0 +1,8 @@
+{
+  "description": "cases/ 下出现缺少 u_ / b_ 轨道前缀的文件 wordcount_cases.md。",
+  "scope": "create",
+  "exit_code": 4,
+  "codes": [
+    "DOC_TRACK_PREFIX_INVALID"
+  ]
+}

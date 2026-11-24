@@ -4,7 +4,7 @@
   "title": "run 报告写入覆盖率",
   "version": "v0.1.0",
   "milestone": "M1-test-anything-v0.1",
-  "status": "pending",
+  "status": "completed",
   "branch": "feat/T03-coverage-report",
   "depends_on": [
     "T02"
@@ -19,8 +19,8 @@
     "description": "检查 last_run.json 模板与 runner 规则是否已含覆盖率字段",
     "command": "python3 -I -c \"import pathlib as p, sys; t = p.Path('templates/state/last_run.json.tpl').read_text(encoding='utf-8'); r = p.Path('references/runner-and-reporting.md').read_text(encoding='utf-8'); sys.exit(0 if 'coverage' in t and 'coverage' in r else 1)\"",
     "expected": "Exit 1 表示尚未实现需开发交付；Exit 0 表示可能已实现，需核对验收项",
-    "is_completed": false,
-    "evidence": ""
+    "is_completed": true,
+    "evidence": "开工前执行预检命令 Exit 1（templates/state/last_run.json.tpl 与 references/runner-and-reporting.md 均不含 coverage，非前序提交意外实现）；完成 T03-1~T03-4 后复测同一命令 Exit 0。"
   },
   "callback": {
     "before": [
@@ -38,77 +38,79 @@
       "id": "T03-1",
       "title": "同次运行采集覆盖率",
       "capability": "run 与 run unittest 在同一次单测运行中通过运行器参数采集覆盖率，不额外再跑；基准测试不采集；原始文件落 tests/tmp/coverage/；不自动安装工具，缺工具时写 N/A 并说明原因",
-      "done": false
+      "done": true
     },
     {
       "id": "T03-2",
       "title": "覆盖率解析（ta-verify 扩展）",
       "capability": "以标准库解析 LCOV、工具 JSON 汇总与 Go coverprofile，输出 tool、format、line_pct、branch_pct、uncovered[]（每模块上限 50 条）；Go 分支覆盖为 N/A",
-      "done": false
+      "done": true
     },
     {
       "id": "T03-3",
       "title": "状态与报告",
       "capability": "写入 last_run.json.unit.coverage；u_report 新增第 4 节未覆盖符号；all_report 新增覆盖率列",
-      "done": false
+      "done": true
     },
     {
       "id": "T03-4",
       "title": "协议与模板同步",
       "capability": "同步修订 01-目录结构与状态管理 中 last_run.json 字段协议与 templates/state/last_run.json.tpl",
-      "done": false
+      "done": true
     }
   ],
   "acceptance": {
-    "result": null,
-    "run_id": "",
-    "user_quote": "",
-    "signoff": "",
+    "result": true,
+    "run_id": "local-20261124-03",
+    "user_quote": "确认验收，同意 completed",
+    "signoff": "sivan (AI代签，2026-11-24，会话确认对话框)",
     "checks": [
       {
         "item": "同次采集与判定不变",
         "true_if": "覆盖率在同一次单测运行中采集；采集或解析失败时 passed/failed/error 判定与退出码不变，只在覆盖率字段写 N/A 并说明原因",
         "false_if": "为覆盖率额外再跑一遍测试，或覆盖率失败改变了单测判定或退出码",
-        "evidence": "",
-        "result": null
+        "evidence": "真实运行：python-sample 的单测命令为 `python3 -B -m coverage run --branch --source=textkit --data-file=tests/tmp/coverage/.coverage -m pytest tests/unit …`，同一次执行得到 6 passed、Exit 0（run_id 20261124_102731），与此前未包覆盖率的裸跑结果（6 passed、Exit 0、263 ms）在计数与判定上完全一致；基准命令未带任何覆盖率参数，b_report 注明“基准测试不采集覆盖率”。解析失败不改判定的实测：在临时副本中先正常执行上述单测（Exit 0、6 passed），再把 .coverage 写成非数据库内容，`coverage json` 导出 Exit 1（file is not a database）、`scripts/ta-verify --coverage` 对缺失的导出文件 Exit 2 并给出原因，而该次单测的判定仍是 passed、退出码仍是 0，覆盖率按规则记为 unavailable 并附原因。变异校验（仓库临时副本）：把 workflow.yaml 的“Never execute the unit tests a second time for coverage”改成“Run the unit tests again afterwards to collect coverage”后，test_run_stages_collect_parse_and_render_coverage 以 AssertionError 失败。",
+        "result": true
       },
       {
         "item": "诚实报告",
         "true_if": "缺工具或无法采集时报告 N/A 而不是 0；不设覆盖率阈值门禁；INV_NO_PASS_WITHOUT_EVIDENCE 不被弱化",
         "false_if": "出现伪造的 0% 或数值、自动安装工具，或引入覆盖率阈值门禁",
-        "evidence": "",
-        "result": null
+        "evidence": "未测得不写数值：解析器对“没有可统计业务源码”的输入返回 status=unavailable、line_pct/branch_pct 均为字符串 N/A 并给出原因（test_nothing_measurable_is_unavailable_not_zero ok）；校验器对 status 非 ok 却写数值、或 status 非 ok 无原因分别报 COVERAGE_VALUE_WITHOUT_EVIDENCE 与 COVERAGE_UNAVAILABLE_WITHOUT_REASON，两个变异用例（value-without-evidence、unavailable-without-reason）均检出；在仓库临时副本中注释掉“值必须为 N/A”的分支后，变异测试以 AssertionError 失败。不自动安装：runner-and-reporting 第 5 节明确“Never install a coverage tool”并列出禁止的安装命令，workflow.yaml 只有只读探测与回退到普通命令的指令，未执行任何安装；CI 环境没有 coverage.py，测试按预期跳过真实采集对照（skip 原因写明），也未安装。无阈值、不弱化 INV_NO_PASS_WITHOUT_EVIDENCE：references 第 5 节第 6 条规定“No thresholds and no re-judging”，校验器的覆盖率检查组只产出自己的诊断码、不参与轨道状态推导；全量报告中覆盖率仅作呈现列，健康度判定不含覆盖率。",
+        "result": true
       },
       {
         "item": "格式与语言范围",
         "true_if": "Python 与 Go 样例均产出正确的 line_pct，Python 产出 branch_pct、Go 为 N/A；uncovered[] 每模块不超过 50 条",
         "false_if": "解析结果与样例原始文件不一致、Go 给出分支覆盖数值，或超出 Python/Go 范围",
-        "evidence": "",
-        "result": null
+        "evidence": "Python：解析器在真实 coverage.json 上得到 line_pct 76.92（20/26 行）、branch_pct 60.0（6/10 分支），与 `python3 -m coverage report` 输出的 72%（行与分支混合加权）不同，证明按协议分别计算行与分支、没有采用混合值；同一份数据的 LCOV 导出经解析得到与 JSON 完全相同的 6 条未覆盖条目与模块汇总（模块 57.14/33.33/100/100/100/N/A）。Go：真实 coverprofile 解析为 line_pct 100.0、branch_pct N/A、uncovered 为空，与 `go tool cover -func` 的 total 100.0% 一致；校验器对 go-coverprofile 出现数值型 branch_pct 报 COVERAGE_FIELD_INVALID（变异用例 coverage-field-invalid 检出）。上限与范围：60 条未覆盖行的合成输入被截为 50 条并记 uncovered_omitted={\"big\": 10}（test_per_module_cap_keeps_fifty_and_counts_the_rest ok），校验器对 51 条报 COVERAGE_UNCOVERED_OVER_CAP；只实现 coverage JSON、LCOV、Go coverprofile 三类解析（HTML 与其他格式 Exit 2），其他语言按规则记 not_supported，未声明任何额外语言支持。",
+        "result": true
       },
       {
         "item": "协议同步",
         "true_if": "01 设计、last_run.json.tpl、u_report/all_report 模板与 03 规则 5 一致，ta-verify 对新字段校验通过",
         "false_if": "任一模板或协议与 03 规则 5 不一致",
-        "evidence": "",
-        "result": null
+        "evidence": "01-目录结构与状态管理 第 4.2 节新增 unit.coverage 字段协议（status/reason/tool/format/line_pct/branch_pct/raw/modules/uncovered/uncovered_omitted），templates/state/last_run.json.tpl 含同名对象；u_report 模板第 1 节含“行覆盖率/分支覆盖率”列并新增“## 4. 未覆盖符号”，all_report 模板第 2 节含“行覆盖率”列；03 规则 5 的九条要求与 references/runner-and-reporting.md 第 5 节、references/artifact-verification.md 第 8 节逐条对应；两个黄金样例在 create/run/all 三个范围下 ta-verify 均 Exit 0（原始覆盖率文件存在时按同一解析器重新解析比对通过），协议字段名与取值经校验器核对无偏差。",
+        "result": true
       },
       {
         "item": "自动化测试与治理门禁",
         "true_if": "全量单测 Exit 0、CI 全绿、scripts/adflow-verify --json Exit 0",
         "false_if": "任一测试失败、CI 红或 adflow-verify 报告违规",
-        "evidence": "",
-        "result": null
+        "evidence": "本地：PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v 运行 61 项全部 OK（Exit 0；T02 的 42 项加新增 19 项覆盖率测试）；在不含 local/ 与样例 tests/tmp 的干净副本上以 Python 3.8.10、3.9.13、3.13.7、3.14.0 复跑均通过（3.13/3.14 因该解释器未安装 coverage.py 各跳过 1 项真实采集对照，属预期跳过）；scripts/adflow-verify --json 与 --mode init --json 均 Exit 0。远端 CI：推送 feat/T03-coverage-report（提交 fd7163c）触发 GitHub Actions 运行 45320216761（https://github.com/4everSivan/test-anything/actions/runs/45320216761），四个步骤全部 success；日志显示 test_skill_contract 10 项、test_artifact_gate 16 项、test_ta_verify 16 项、test_coverage 19 项（其中真实 Python 采集对照因 CI 无 coverage.py 跳过 1 项，Go 真实采集对照通过），共 61 项；黄金样例 --scope all 与负向样例步骤均通过。",
+        "result": true
       }
     ]
   },
   "sync": {
-    "commit": ""
+    "commit": "fd7163c1995809a3d60e3e963778b2085f507785"
   },
   "gate": {
     "tool": "adflow-verify",
-    "version": "1.6.0",
-    "ran_at": "",
-    "exit_code": null
+    "version": "1.8.1",
+    "ran_at": "2026-11-24",
+    "exit_code": 0,
+    "from_status": "in_progress",
+    "target_status": "completed"
   }
 }

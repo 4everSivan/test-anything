@@ -1,0 +1,8 @@
+{
+  "description": "孤立用例：UT-wordcount-002 仍在 cases 规格中，但对应的测试函数被删除，没有任何 @case 绑定它。",
+  "scope": "create",
+  "exit_code": 4,
+  "codes": [
+    "CASE_WITHOUT_TEST_CODE"
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "description": "manifest.json 模块条目结构非法：unit_code 写成了路径字符串，而不是含 path / sha256 / case_ids 的对象。",
+  "scope": "create",
+  "exit_code": 4,
+  "codes": [
+    "MANIFEST_MODULE_INVALID"
+  ]
+}

@@ -1,0 +1,48 @@
+name: ci
+
+# 技能包自身的最小 CI（见 references/artifact-verification.md 第 7 节）：
+# 只跑契约测试并对提交入库的黄金 / 负向样例运行 ta-verify，不调用 AI 执行 create 或 run。
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+
+jobs:
+  verify:
+    name: Contract tests and ta-verify regression baseline
+    runs-on: ubuntu-latest
+    steps:
+      # 契约测试会运行 adflow-verify，它要核对已收口卡的 sync.commit 是 HEAD 的祖先。
+      # 默认的浅克隆只有最新一个提交、没有父提交，会被误判为 COMMIT_NOT_ANCESTOR，
+      # 因此这里检出完整历史。
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Skill package contract tests (assets, artifact gate integration, CI contract)
+        run: |
+          python3 -m unittest discover -s tests -p "test_skill_contract.py" -v
+          python3 -m unittest discover -s tests -p "test_artifact_gate.py" -v
+
+      - name: Golden samples pass ta-verify (--scope all must exit 0)
+        run: |
+          scripts/ta-verify --target examples/python-sample --scope all
+          scripts/ta-verify --target examples/go-sample --scope all
+
+      - name: Negative and warning samples hit their expected diagnostic codes
+        run: |
+          python3 -m unittest discover -s tests -p "test_ta_verify.py" -v
+
+      # 覆盖率解析与核对用合成夹具，不依赖 coverage.py 或 go；真实采集对照在缺工具时自动跳过。
+      - name: Coverage parsing, coverage checks and coverage report contract
+        run: |
+          python3 -m unittest discover -s tests -p "test_coverage.py" -v

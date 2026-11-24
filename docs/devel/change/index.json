@@ -1,7 +1,7 @@
 {
   "$schema": "https://ad-flow.org/schemas/change-index.v1.json",
   "version": "1.0",
-  "updated_at": "2026-11-23",
+  "updated_at": "2026-11-24",
   "topics": {
     "TestAnythingOverview": {
       "design_doc": "docs/devel/design/00-系统总体设计.md",
@@ -31,6 +31,12 @@
         "C001",
         "C002"
       ]
+    },
+    "ArtifactVerification": {
+      "design_doc": "docs/devel/design/04-产物校验与样例回归.md",
+      "changes": [
+        "C004"
+      ]
     }
   },
   "cards": {
@@ -54,6 +60,13 @@
       "status": "draft",
       "branch": "fix/C003-overview-status-wording",
       "file": "docs/devel/change/C003.json"
+    },
+    "C004": {
+      "title": "CI 浅克隆使已收口卡的 sync.commit 祖先校验失败",
+      "version": "v0.1.0",
+      "status": "in_progress",
+      "branch": "fix/C004-ci-full-history",
+      "file": "docs/devel/change/C004.json"
     }
   }
 }
