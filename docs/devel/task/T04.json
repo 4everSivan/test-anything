@@ -4,7 +4,7 @@
   "title": "增量 create 支持 --module 与覆盖率缺口转补测",
   "version": "v0.1.0",
   "milestone": "M1-test-anything-v0.1",
-  "status": "in_progress",
+  "status": "completed",
   "branch": "feat/T04-incremental-create-module",
   "depends_on": [
     "T03"
@@ -62,8 +62,8 @@
   "acceptance": {
     "result": true,
     "run_id": "local-20261124-04",
-    "user_quote": "",
-    "signoff": "",
+    "user_quote": "确认",
+    "signoff": "sivan (AI代签，2026-11-24，会话确认)",
     "checks": [
       {
         "item": "前置条件",
@@ -103,12 +103,14 @@
     ]
   },
   "sync": {
-    "commit": ""
+    "commit": "2374c100117740baa2d651c02984a85cf245f991"
   },
   "gate": {
     "tool": "adflow-verify",
-    "version": "1.6.0",
-    "ran_at": "",
-    "exit_code": null
+    "version": "1.8.1",
+    "ran_at": "2026-11-24",
+    "exit_code": 0,
+    "from_status": "in_progress",
+    "target_status": "completed"
   }
 }
