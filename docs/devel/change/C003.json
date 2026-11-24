@@ -4,7 +4,7 @@
   "title": "修正 00 设计文档中的“尚未落地”表述",
   "version": "v0.1.0",
   "type": "BugFix",
-  "status": "draft",
+  "status": "in_progress",
   "branch": "fix/C003-overview-status-wording",
   "is_hotfix": false,
   "target": {

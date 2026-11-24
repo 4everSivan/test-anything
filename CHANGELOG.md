@@ -13,6 +13,8 @@
 
 ### Changed
 
+- [C003](docs/devel/change/C003.json)：修正 `00-系统总体设计` 第 1 节与 4.3 中“技能执行资源尚未落地实现/待交付”的过时表述，如实记录 v0.1.0 已交付的技能资源与回归验证；业务规则不变。
+
 ### Fixed
 
 - [C001](docs/devel/change/C001.json)：修复 `create` 中断后不可续跑（`manifest.json` 以 `create_status`/`completed_stage` 记录进度并支持续跑）、存量 `tests/` 未经用户确认即迁移，以及运行异常被误报为通过（报告新增 `error` 状态及确定性判定规则）。
