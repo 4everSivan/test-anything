@@ -4,7 +4,7 @@
   "title": "补齐 module_scope 语义与 COV-GAP 约束并修正 T04 遗留文档冲突",
   "version": "v0.1.0",
   "type": "BugFix",
-  "status": "verified",
+  "status": "closed",
   "branch": "fix/C005-module-scope-covgap-docs",
   "is_hotfix": false,
   "target": {
@@ -124,8 +124,8 @@
     "version": "1.8.1",
     "ran_at": "2026-11-24",
     "exit_code": 0,
-    "from_status": "in_progress",
-    "target_status": "verified",
+    "from_status": "verified",
+    "target_status": "closed",
     "signed_quote": "确认 C005 验收，同意 verified 并合并 closed",
     "signed_rejection_count": 0
   }
