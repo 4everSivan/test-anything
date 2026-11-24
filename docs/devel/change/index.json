@@ -9,7 +9,8 @@
         "C001"
       ],
       "changes": [
-        "C003"
+        "C003",
+        "C005"
       ]
     },
     "TestLayoutAndState": {
@@ -17,12 +18,18 @@
       "cards": [
         "C001",
         "C002"
+      ],
+      "changes": [
+        "C005"
       ]
     },
     "TestCaseGeneration": {
       "design_doc": "docs/devel/design/02-测试用例生成流水线.md",
       "cards": [
         "C001"
+      ],
+      "changes": [
+        "C005"
       ]
     },
     "TestExecutionAndReport": {
@@ -30,6 +37,9 @@
       "cards": [
         "C001",
         "C002"
+      ],
+      "changes": [
+        "C005"
       ]
     },
     "ArtifactVerification": {
@@ -67,6 +77,13 @@
       "status": "closed",
       "branch": "fix/C004-ci-full-history",
       "file": "docs/devel/change/C004.json"
+    },
+    "C005": {
+      "title": "补齐 module_scope 语义与 COV-GAP 约束并修正 T04 遗留文档冲突",
+      "version": "v0.1.0",
+      "status": "draft",
+      "branch": "fix/C005-module-scope-covgap-docs",
+      "file": "docs/devel/change/C005.json"
     }
   }
 }

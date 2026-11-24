@@ -1,0 +1,128 @@
+{
+  "$schema": "https://ad-flow.org/schemas/change-card.v1.json",
+  "id": "C005",
+  "title": "补齐 module_scope 语义与 COV-GAP 约束并修正 T04 遗留文档冲突",
+  "version": "v0.1.0",
+  "type": "BugFix",
+  "status": "draft",
+  "branch": "fix/C005-module-scope-covgap-docs",
+  "is_hotfix": false,
+  "target": {
+    "module": "test-anything 增量 create 与覆盖率缺口补测",
+    "component": "module_scope 状态语义、COV-GAP 登记约束、00/01/02 设计与 workflow.yaml 表述",
+    "design_doc": "docs/devel/design/02-测试用例生成流水线.md",
+    "design_topic": "TestCaseGeneration"
+  },
+  "why": "T04 交付 create --module 增量生成与 COV-GAP 补测后，K2 合并后补审（a7f831d..f668632，2026-11-24）指出：module_scope 的写入时机、续跑/裸调沿用、全量 create 重置、裸调增量取值、fresh/存量迁移模式下 --module 是否禁用均无规则，且 Stage 4 应只局部替换 modules，而 workflow.yaml:107 与 references/state-and-backup.md 仍写整体替换，续跑与后续增量 create 会因语义不定而误改其他模块；COV-GAP 缺少“只登记范围内模块缺口、按 run_id 去重、last_run 须对应当前源码”三条约束，会重复登记或基于过期覆盖率补测；00 §3.2 路由表缺 create --module、§4.4 缺 T04 行，INV_DRAFT_FIRST_PIPELINE（workflow.yaml:32）“始终全量”与 --module 字面冲突（原意是不按 u_/b_ 拆分）；另有负向样例 plan 与 cases 状态不一致、00 规则演进表 C003 排在 T02 之前、01/02 §4.3 残留“待后续 T 卡实现”类过时表述、INV_COVERAGE_HONEST_AND_PASSIVE 重跑措辞矛盾等遗留。Bella 于 2026-11-24 在 test-anything 项目组群决定并为一张 C 卡处理。",
+  "precheck": {
+    "description": "嗅探文档冲突是否仍在：00 路由表是否缺 create --module 行、INV_DRAFT_FIRST_PIPELINE 是否仍写“始终全量”",
+    "command": "python3 -I -c \"import pathlib as p, sys; o = p.Path('docs/devel/design/00-系统总体设计.md').read_text(encoding='utf-8'); w = p.Path('workflow.yaml').read_text(encoding='utf-8'); sys.exit(0 if 'create --module' in o and 'it always executes the full scope' not in w else 1)\"",
+    "expected": "Exit 1 表示冲突仍在需修复；Exit 0 表示 00 路由表已补 create --module 且 INV_DRAFT_FIRST_PIPELINE 已改写",
+    "is_completed": false,
+    "evidence": "建卡时（main@4e6c5c0，2026-11-24）执行预检命令 Exit 1：00 §3.2 路由表无 create --module 行，workflow.yaml 的 INV_DRAFT_FIRST_PIPELINE 仍写 it always executes the full scope；待实现后复测。"
+  },
+  "callback": {
+    "before": [
+      "scripts/adflow-verify --json",
+      "python3 -I -c <precheck.command>  # 修复前须 Exit 1"
+    ],
+    "after": [
+      "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v",
+      "scripts/ta-verify 对 examples/ 黄金样例 --scope all 与全部负向样例回归",
+      "scripts/adflow-verify --json",
+      "scripts/adflow-verify --card C005 --to verified --record  # Exit 0 后再同步状态",
+      "scripts/adflow-verify --card C005 --receipt"
+    ]
+  },
+  "changes": [
+    {
+      "scope": "业务规则：module_scope 状态语义",
+      "before": "manifest.module_scope 仅随 --module 写入，未规定写入时机、续跑/裸调是否沿用、全量 create 是否重置、裸调增量取值、fresh/legacy 是否禁用 --module；Stage 4 按 workflow.yaml:107 与 state-and-backup 整体替换 modules",
+      "after": "按以下规则在 01、02、workflow.yaml、references/state-and-backup.md 中写成唯一且一致的表述（K2 拟定，Bella 可推翻）：① Stage 0 路由确定后即写入 module_scope，取值为 --module 去重后的列表，不带 --module 时写 []（表示全量）；② resume 与裸调续跑一律沿用中断时记录的 module_scope，不重新推断，换范围须显式重新运行 create；③ 不带 --module 的全量 create 完成后 module_scope 重置为 []；④ 裸调增量时 module_scope 写 []，“只重算变更模块”属运行时行为，不写入 module_scope；⑤ fresh 与存量迁移（legacy）模式下禁用 --module，停止并报告且不迁移任何文件；⑥ Stage 4 只替换 modules 中属于范围内的条目，范围外条目逐字节保留",
+      "impact": "create 续跑、增量 create、manifest 结构与 ta-verify 的 module_scope 静态校验"
+    },
+    {
+      "scope": "业务规则：COV-GAP 登记约束",
+      "before": "增量 create 读取 last_run uncovered[] 登记 COV-GAP，未限定模块范围、未去重、未校验 last_run 与当前源码对应",
+      "after": "补三条约束：① 受限 create 只登记 module_scope 内模块的缺口；② 同一 run_id 的缺口重复登记时以新记录替换旧记录、不追加新编号，不同 run_id 的缺口照常追加编号；③ 仅当 last_run 对应的源码与当前一致（以 manifest 现有源文件哈希判定）时才登记，不一致则整批不登记并在草稿注明原因",
+      "impact": "Stage 1 草稿 Gaps 节、COV-GAP 补测与 02 规则 7"
+    },
+    {
+      "scope": "设计与契约表述",
+      "before": "00 §3.2 路由表无 create --module、§4.4 无 T04 行；INV_DRAFT_FIRST_PIPELINE 写 create 始终全量",
+      "after": "00 补 create --module 路由行与 §4.4 T04 行；INV_DRAFT_FIRST_PIPELINE 改为“不按 u_/b_ 拆分轨道”，与 --module 不冲突",
+      "impact": "路由说明、FATAL 不变量文字与契约测试断言"
+    },
+    {
+      "scope": "遗留小项",
+      "before": "负向样例 plan 写 active 而 cases 写 deprecated；00 规则演进表 C003 位于 T02 之前；01/02 §4.3 残留“待后续 T 卡实现”类表述；INV_COVERAGE_HONEST_AND_PASSIVE 重跑措辞自相矛盾",
+      "after": "四项逐一修正，表述与现状及时间顺序一致；INV_COVERAGE_HONEST_AND_PASSIVE 统一为：覆盖率永远不触发第二次测试运行；唯一例外是覆盖率包裹本身导致运行器崩溃、拿不到测试结论时，允许以普通命令重跑一次并在 reason 写明",
+      "impact": "负向样例回归、设计文档与 workflow.yaml 文字，无业务规则外延变化"
+    }
+  ],
+  "design": {
+    "doc": "docs/devel/design/02-测试用例生成流水线.md",
+    "topic": "TestCaseGeneration",
+    "modified": true,
+    "rule_diff": {
+      "before": "module_scope 仅随 --module 写入、语义未定义，Stage 4 整体替换 modules；COV-GAP 读取 uncovered[] 登记缺口，无范围、去重与源码对应约束；INV_DRAFT_FIRST_PIPELINE 规定 create 始终全量",
+      "after": "module_scope：① Stage 0 路由确定后即写入 module_scope，取值为 --module 去重后的列表，不带 --module 时写 []（表示全量）；② resume 与裸调续跑一律沿用中断时记录的 module_scope，不重新推断，换范围须显式重新运行 create；③ 不带 --module 的全量 create 完成后 module_scope 重置为 []；④ 裸调增量时 module_scope 写 []，“只重算变更模块”属运行时行为，不写入 module_scope；⑤ fresh 与存量迁移（legacy）模式下禁用 --module，停止并报告且不迁移任何文件；⑥ Stage 4 只替换 modules 中属于范围内的条目，范围外条目逐字节保留；COV-GAP：① 受限 create 只登记 module_scope 内模块的缺口；② 同一 run_id 的缺口重复登记时以新记录替换旧记录、不追加新编号，不同 run_id 的缺口照常追加编号；③ 仅当 last_run 对应的源码与当前一致（以 manifest 现有源文件哈希判定）时才登记，不一致则整批不登记并在草稿注明原因；INV_DRAFT_FIRST_PIPELINE 改为不按 u_/b_ 拆分；INV_COVERAGE_HONEST_AND_PASSIVE：覆盖率永远不触发第二次测试运行；唯一例外是覆盖率包裹本身导致运行器崩溃、拿不到测试结论时，允许以普通命令重跑一次并在 reason 写明（同步回写 01-目录结构与状态管理.md @TestLayoutAndState、00-系统总体设计.md @TestAnythingOverview 与 03-测试执行与报告引擎.md @TestExecutionAndReport）"
+    }
+  },
+  "verification": {
+    "result": null,
+    "run_id": "",
+    "user_quote": "",
+    "signoff": "",
+    "checks": [
+      {
+        "item": "module_scope 规则完备",
+        "true_if": "01、02、workflow.yaml 与 references/state-and-backup.md 一致写明（K2 拟定，Bella 可推翻）：① Stage 0 路由确定后即写入 module_scope，取值为 --module 去重后的列表，不带 --module 时写 []（表示全量）；② resume 与裸调续跑一律沿用中断时记录的 module_scope，不重新推断，换范围须显式重新运行 create；③ 不带 --module 的全量 create 完成后 module_scope 重置为 []；④ 裸调增量时 module_scope 写 []，“只重算变更模块”属运行时行为，不写入 module_scope；⑤ fresh 与存量迁移（legacy）模式下禁用 --module，停止并报告且不迁移任何文件；⑥ Stage 4 只替换 modules 中属于范围内的条目，范围外条目逐字节保留；workflow.yaml:107 与 state-and-backup 不再写整体替换；六点各有针对性回归测试或负向样例",
+        "false_if": "任一点缺规则、文件间说法不一致或与上述取值不符、仍写整体替换、fresh/legacy 下接受 --module 或因此迁移文件、范围外 modules 条目被改动，或缺少对应回归测试",
+        "evidence": "",
+        "result": null
+      },
+      {
+        "item": "COV-GAP 三条约束",
+        "true_if": "02 规则 7、workflow.yaml 与相关 references 写明：① 受限 create 只登记 module_scope 内模块的缺口；② 同一 run_id 的缺口重复登记时以新记录替换旧记录、不追加新编号，不同 run_id 的缺口照常追加编号；③ 仅当 last_run 对应的源码与当前一致（以 manifest 现有源文件哈希判定）时才登记，不一致则整批不登记并在草稿注明原因；三条各有针对性测试，违反该约束的样例或断言能让测试失败",
+        "false_if": "任一约束缺失或无测试覆盖，或登记了范围外模块缺口、同一 run_id 追加了新编号、源码哈希不一致时仍登记缺口",
+        "evidence": "",
+        "result": null
+      },
+      {
+        "item": "文档冲突消除",
+        "true_if": "precheck 命令修复前 Exit 1、修复后 Exit 0；00 §3.2 含 create --module 路由行、§4.4 含 T04 行；INV_DRAFT_FIRST_PIPELINE 改为不按 u_/b_ 拆分的原意且 FATAL 级别不变",
+        "false_if": "precheck 仍 Exit 1，或 00 缺行，或不变量仍与 --module 字面冲突，或改动降低了不变量级别",
+        "evidence": "",
+        "result": null
+      },
+      {
+        "item": "遗留小项",
+        "true_if": "负向样例 plan 与 cases 的用例状态一致且该负向样例仍报出预期诊断码；00 规则演进表按时间顺序排列 T02 在 C003 之前；01、02 §4.3 不再含“待后续 T 卡实现”类过时表述；INV_COVERAGE_HONEST_AND_PASSIVE 统一为“覆盖率永远不触发第二次测试运行；唯一例外是覆盖率包裹本身导致运行器崩溃、拿不到测试结论时，允许以普通命令重跑一次并在 reason 写明”",
+        "false_if": "任一小项未修，或修正改变了负向样例预期结果、覆盖率被动采集规则",
+        "evidence": "",
+        "result": null
+      },
+      {
+        "item": "治理门禁与反向影响",
+        "true_if": "全量单测 Exit 0、黄金样例 --scope all Exit 0、负向样例全部符合 expected、CI 全绿、scripts/adflow-verify --json 与 --mode init Exit 0；help/create/run 路由、ta-verify 只读与退出码 0/4/2 不变",
+        "false_if": "任一测试或样例失败、CI 红、adflow-verify 报告违规，改变了既有路由与校验器契约，或改变了 T02、T03、T04 已有的诊断码与退出码语义（包括 CASE_DEPRECATED_WITH_CODE 为 Exit 4、哈希不一致仅告警仍 Exit 0）",
+        "evidence": "",
+        "result": null
+      }
+    ]
+  },
+  "rejections": [],
+  "sync": {
+    "design_pinned": false,
+    "changelog": false,
+    "commit": "",
+    "tag": ""
+  },
+  "gate": {
+    "tool": "adflow-verify",
+    "version": "1.8.1",
+    "ran_at": "",
+    "exit_code": null
+  }
+}
